@@ -1,4 +1,8 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -8,132 +12,145 @@ export class DevicesService {
     private readonly prisma: PrismaService,
   ) {}
 
+  // 🔹 Criar dispositivo (TV)
   async registerDevice() {
     const code = Math.random()
       .toString(36)
       .substring(2, 8)
       .toUpperCase();
 
-    return this.prisma.device.create({
+    const device = await this.prisma.device.create({
       data: {
         code,
         isLinked: false,
       },
     });
+
+    return {
+      id: device.id,
+      code: device.code,
+      isLinked: device.isLinked,
+    };
   }
 
-  async linkDevice(
-    code: string,
-    companyId: string,
-  ) {
-    const device =
-      await this.prisma.device.findUnique({
-        where: {
-          code,
-        },
-      });
+  // 🔹 Vincular dispositivo à empresa
+  async linkDevice(code: string, companyId: string) {
+    const device = await this.prisma.device.findUnique({
+      where: { code },
+    });
 
     if (!device) {
-      throw new NotFoundException(
-        'Dispositivo não encontrado',
-      );
+      throw new NotFoundException('Dispositivo não encontrado');
     }
 
     return this.prisma.device.update({
-      where: {
-        id: device.id,
-      },
+      where: { id: device.id },
       data: {
         isLinked: true,
         companyId,
       },
     });
   }
-async list(companyId: string) {
-  const devices =
-    await this.prisma.device.findMany({
-      where: {
-        companyId,
-      },
+
+  // 🔹 Listar dispositivos da empresa
+  async list(companyId: string) {
+    const devices = await this.prisma.device.findMany({
+      where: { companyId },
     });
 
-  const now = Date.now();
+    const now = Date.now();
 
-  return devices.map((device) => {
-    const lastHeartbeat =
-      device.lastHeartbeat;
+    return devices.map((device) => {
+      const lastHeartbeat = device.lastHeartbeat;
 
-    let status = 'OFFLINE';
+      let status = 'OFFLINE';
 
-    if (lastHeartbeat) {
-      const diff =
-        now -
-        lastHeartbeat.getTime();
+      if (lastHeartbeat) {
+        const diff = now - lastHeartbeat.getTime();
 
-      if (diff < 60000) {
-        status = 'ONLINE';
+        if (diff < 60000) {
+          status = 'ONLINE';
+        }
       }
+
+      return {
+        ...device,
+        status,
+      };
+    });
+  }
+
+  // 🔹 Buscar dispositivo por código (TV usa isso)
+  async findByCode(code: string) {
+    const device = await this.prisma.device.findUnique({
+      where: { code },
+    });
+
+    if (!device) {
+      throw new NotFoundException('Dispositivo não encontrado');
     }
 
     return {
-      ...device,
-      status,
+      id: device.id,
+      code: device.code,
+      isLinked: device.isLinked,
+      companyId: device.companyId,
     };
-  });
-}
-  
-  async findByCode(code: string) {
-  const device =
-    await this.prisma.device.findUnique({
-      where: {
-        code,
-      },
-    });
-
-  if (!device) {
-    throw new NotFoundException(
-      'Dispositivo não encontrado',
-    );
   }
 
-  return {
-    id: device.id,
-    code: device.code,
-    isLinked: device.isLinked,
-    companyId: device.companyId,
-  };
-}
-async currentPlaylist(code: string) {
-  const device =
-    await this.prisma.device.findUnique({
-      where: {
-        code,
-      },
+  // 🔹 Parear dispositivo com nome
+  async pairDevice(
+    code: string,
+    name: string,
+    companyId: string,
+  ) {
+    const device = await this.prisma.device.findUnique({
+      where: { code },
     });
 
-  if (!device) {
-    throw new NotFoundException(
-      'Dispositivo não encontrado',
+    if (!device) {
+      throw new NotFoundException('Dispositivo não encontrado');
+    }
+
+    if (device.isLinked) {
+      throw new BadRequestException('Dispositivo já vinculado');
+    }
+
+    await this.createLog(
+      device.id,
+      'Dispositivo vinculado à empresa',
     );
+
+    return this.prisma.device.update({
+      where: { id: device.id },
+      data: {
+        name,
+        companyId,
+        isLinked: true,
+      },
+    });
   }
 
-  const now = new Date();
+  // 🔹 Playlist atual do dispositivo
+  async currentPlaylist(code: string) {
+    const device = await this.prisma.device.findUnique({
+      where: { code },
+    });
 
-  const currentDate =
-    now.toISOString().split('T')[0];
+    if (!device) {
+      throw new NotFoundException('Dispositivo não encontrado');
+    }
 
-  const currentTime =
-    now.toTimeString().substring(0, 5);
+    const now = new Date();
 
-  const currentDay =
-    now.getDay().toString();
+    const currentDate = now.toISOString().split('T')[0];
+    const currentTime = now.toTimeString().substring(0, 5);
+    const currentDay = now.getDay().toString();
 
-  const schedules =
-    await this.prisma.schedule.findMany({
+    const schedules = await this.prisma.schedule.findMany({
       where: {
         deviceId: device.id,
       },
-
       include: {
         playlist: {
           include: {
@@ -141,7 +158,6 @@ async currentPlaylist(code: string) {
               include: {
                 media: true,
               },
-
               orderBy: {
                 order: 'asc',
               },
@@ -151,17 +167,14 @@ async currentPlaylist(code: string) {
       },
     });
 
-  const activeSchedule =
-    schedules.find((schedule) => {
-      const startDate =
-        schedule.startDate
-          .toISOString()
-          .split('T')[0];
+    const activeSchedule = schedules.find((schedule) => {
+      const startDate = schedule.startDate
+        .toISOString()
+        .split('T')[0];
 
-      const endDate =
-        schedule.endDate
-          .toISOString()
-          .split('T')[0];
+      const endDate = schedule.endDate
+        .toISOString()
+        .split('T')[0];
 
       const validDate =
         currentDate >= startDate &&
@@ -171,127 +184,73 @@ async currentPlaylist(code: string) {
         currentTime >= schedule.startTime &&
         currentTime <= schedule.endTime;
 
-      const validDay =
-        schedule.daysOfWeek
-          .split(',')
-          .includes(currentDay);
+      const validDay = schedule.daysOfWeek
+        .split(',')
+        .includes(currentDay);
 
-      return (
-        validDate &&
-        validTime &&
-        validDay
-      );
+      return validDate && validTime && validDay;
     });
 
-  if (!activeSchedule) {
+    if (!activeSchedule) {
+      return {
+        playlist: null,
+      };
+    }
+
     return {
-      playlist: null,
+      scheduleId: activeSchedule.id,
+      playlist: activeSchedule.playlist,
     };
   }
 
-  return {
-    scheduleId: activeSchedule.id,
-
-    playlist:
-      activeSchedule.playlist,
-  };
-}
-async heartbeat(code: string) {
-  const device =
-    await this.prisma.device.findUnique({
+  // 🔹 Heartbeat (online status)
+  async heartbeat(code: string) {
+    const device = await this.prisma.device.findUnique({
       where: { code },
     });
 
-  if (!device) {
-    throw new NotFoundException();
-  }
+    if (!device) {
+      throw new NotFoundException();
+    }
 
-  await this.prisma.device.update({
-    where: {
-      id: device.id,
-    },
-    data: {
-      lastHeartbeat: new Date(),
-    },
-  });
-
-  await this.createLog(
-    device.id,
-    'Heartbeat recebido',
-  );
-
-  return {
-    success: true,
-  };
-}
-async pairDevice(
-  code: string,
-  name: string,
-  companyId: string,
-) {
-  const device =
-    await this.prisma.device.findUnique({
-      where: {
-        code,
+    await this.prisma.device.update({
+      where: { id: device.id },
+      data: {
+        lastHeartbeat: new Date(),
       },
     });
 
-
-  if (!device) {
-    throw new NotFoundException(
-      'Dispositivo não encontrado',
+    await this.createLog(
+      device.id,
+      'Heartbeat recebido',
     );
+
+    return {
+      success: true,
+    };
   }
 
-  if (device.isLinked) {
-    throw new BadRequestException(
-      'Dispositivo já vinculado',
-    );
+  // 🔹 Logs do device
+  async logs(deviceId: string) {
+    return this.prisma.deviceLog.findMany({
+      where: { deviceId },
+      orderBy: {
+        createdAt: 'desc',
+      },
+      take: 100,
+    });
   }
 
-  await this.createLog(
-  device.id,
-  `Dispositivo vinculado à empresa`,
-);
-
-  return this.prisma.device.update({
-    where: {
-      id: device.id,
-    },
-
-    data: {
-      name,
-      companyId,
-      isLinked: true,
-    },
-  });
+  // 🔹 Criar log interno
+  private async createLog(
+    deviceId: string,
+    message: string,
+  ) {
+    return this.prisma.deviceLog.create({
+      data: {
+        deviceId,
+        message,
+      },
+    });
+  }
 }
-
-private async createLog(
-  deviceId: string,
-  message: string,
-) {
-  return this.prisma.deviceLog.create({
-    data: {
-      deviceId,
-      message,
-    },
-  });
-}
-
-async logs(deviceId: string) {
-  return this.prisma.deviceLog.findMany({
-    where: {
-      deviceId,
-    },
-
-    orderBy: {
-      createdAt: 'desc',
-    },
-
-    take: 100,
-  });
-}
-}
-
-
