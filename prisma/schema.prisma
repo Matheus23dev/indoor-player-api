@@ -1,0 +1,172 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  OWNER
+  ADMIN
+  OPERATOR
+}
+
+enum MediaType {
+  IMAGE
+  VIDEO
+}
+
+enum DeviceStatus {
+  ONLINE
+  OFFLINE
+}
+
+model Company {
+  id          String      @id @default(uuid())
+
+  name        String
+  slug        String      @unique
+
+  users       User[]
+  devices     Device[]
+  medias      Media[]
+  playlists   Playlist[]
+  schedules   Schedule[]
+
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+}
+
+model User {
+  id          String      @id @default(uuid())
+
+  name        String
+  email       String      @unique
+  password    String
+
+  role        UserRole    @default(ADMIN)
+
+  companyId   String
+  company     Company     @relation(fields: [companyId], references: [id])
+
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+}
+
+model Device {
+  id            String         @id @default(uuid())
+
+  name          String?
+
+  code          String         @unique
+
+  isLinked      Boolean        @default(false)
+
+  status        DeviceStatus   @default(OFFLINE)
+
+  lastHeartbeat DateTime?
+
+  companyId     String?
+  company       Company?       @relation(fields: [companyId], references: [id])
+
+  schedules     Schedule[]
+
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+}
+
+model DeviceLog {
+  id        String   @id @default(uuid())
+
+  deviceId  String
+
+  message   String
+
+  createdAt DateTime @default(now())
+}
+
+model Media {
+  id            String        @id @default(uuid())
+
+  name          String
+
+  type          MediaType
+
+  fileUrl       String
+
+  fileSize      Int?
+
+  duration      Int?
+
+  companyId     String
+  company       Company       @relation(fields: [companyId], references: [id])
+
+  playlistItems PlaylistItem[]
+
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+}
+
+model Playlist {
+  id            String         @id @default(uuid())
+
+  name          String
+
+  companyId     String
+  company       Company        @relation(fields: [companyId], references: [id])
+
+  items         PlaylistItem[]
+
+  schedules     Schedule[]
+
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+}
+
+model PlaylistItem {
+  id            String        @id @default(uuid())
+
+  playlistId    String
+  playlist      Playlist      @relation(fields: [playlistId], references: [id], onDelete: Cascade)
+
+  mediaId       String
+  media         Media         @relation(fields: [mediaId], references: [id])
+
+  order         Int
+
+  duration      Int?
+
+  createdAt     DateTime      @default(now())
+
+  @@unique([playlistId, order])
+}
+
+model Schedule {
+  id            String        @id @default(uuid())
+
+  name          String
+
+  companyId     String
+  company       Company       @relation(fields: [companyId], references: [id])
+
+  deviceId      String
+  device        Device        @relation(fields: [deviceId], references: [id])
+
+  playlistId    String
+  playlist      Playlist      @relation(fields: [playlistId], references: [id])
+
+  startDate     DateTime
+  endDate       DateTime
+
+  startTime     String
+  endTime       String
+
+  daysOfWeek    String
+
+  priority      Int           @default(1)
+
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+}
