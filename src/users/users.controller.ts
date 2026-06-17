@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Param,
   Post,
   Req,
   UseGuards,
@@ -36,4 +37,15 @@ export class UsersController {
       req.user.companyId,
     );
   }
+
+  @Get(':id')
+findById(
+  @Param('id') id: string,
+  @Req() req: any,
+) {
+  return this.usersService.findById(
+    id,
+    req.user.companyId,
+  );
+}
 }

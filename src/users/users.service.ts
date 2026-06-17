@@ -71,4 +71,27 @@ export class UsersService {
       },
     });
   }
+
+  async findById(id: string, companyId: string) {
+  const user = await this.prisma.user.findFirst({
+    where: {
+      id,
+      companyId,
+    },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      role: true,
+    },
+  });
+
+  if (!user) {
+    throw new BadRequestException(
+      'Usuário não encontrado',
+    );
+  }
+
+  return user;
+}
 }
