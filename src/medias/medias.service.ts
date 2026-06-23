@@ -66,6 +66,7 @@ export class MediasService {
       'Mídia não encontrada',
     );
   }
+  
 
   const filePath = path.join(
     process.cwd(),
@@ -76,10 +77,17 @@ export class MediasService {
     await fs.remove(filePath);
   }
 
-  return this.prisma.media.delete({
-    where: {
-      id,
-    },
-  });
-}
-}
+return this.prisma.$transaction([
+    this.prisma.playlistItem.deleteMany({
+      where: {
+        mediaId: id,
+      },
+    }),
+
+    this.prisma.media.delete({
+      where: {
+        id,
+      },
+    }),
+  ]);
+}}
