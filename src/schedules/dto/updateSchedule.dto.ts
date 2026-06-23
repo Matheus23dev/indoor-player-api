@@ -1,15 +1,4 @@
-export class UpdateScheduleDto {
-    name?: string;
+import { PartialType } from '@nestjs/mapped-types';
+import { CreateScheduleDto } from './createSchedule.dto';
 
-    startDate?: Date;
-
-    endDate?: Date;
-
-    startTime?: string;
-
-    endTime?: string;
-
-    daysOfWeek?: string;
-
-    priority?: number;
-  }
+export class UpdateScheduleDto extends PartialType(CreateScheduleDto) {}

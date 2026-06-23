@@ -1,118 +1,99 @@
 import {
-  BadRequestException,
   Injectable,
   UnauthorizedException,
+  ConflictException,
+  InternalServerErrorException,
+  HttpException,
 } from '@nestjs/common';
-
-import { PrismaService } from '../prisma/prisma.service';
-
-import * as bcrypt from 'bcrypt';
-
 import { JwtService } from '@nestjs/jwt';
+import * as bcrypt from 'bcrypt';
+import { PrismaService } from '../prisma/prisma.service';
+import { RegisterDto } from './dto/register.dto';
+import { LoginDto } from './dto/login.dto';
+import { UserRole } from '@prisma/client';
 
 @Injectable()
 export class AuthService {
   constructor(
-    private prisma: PrismaService,
-    private jwt: JwtService,
+    private readonly prisma: PrismaService,
+    private readonly jwt: JwtService,
   ) {}
 
-async register(data: any) {
-  const userExists = await this.prisma.user.findUnique({
-    where: {
-      email: data.email,
-    },
-  });
+  async register(data: RegisterDto) {
+    try {
+      const slug = data.companyName.toLowerCase().trim().replace(/\s+/g, '-');
 
-  if (userExists) {
-    throw new BadRequestException(
-      'Email já cadastrado',
-    );
+      const [userExists, companyExists] = await Promise.all([
+        this.prisma.user.findUnique({ where: { email: data.email } }),
+        this.prisma.company.findUnique({ where: { slug } }),
+      ]);
+
+      if (userExists) throw new ConflictException('E-mail já cadastrado.');
+      if (companyExists) throw new ConflictException('Já existe uma empresa com esse nome.');
+
+      const passwordHash = await bcrypt.hash(data.password, 10);
+
+      const result = await this.prisma.$transaction(async (tx) => {
+        const company = await tx.company.create({
+          data: {
+            name: data.companyName,
+            slug,
+          },
+        });
+
+        const user = await tx.user.create({
+          data: {
+            name: data.userName,
+            email: data.email,
+            password: passwordHash,
+            companyId: company.id,
+            role: UserRole.OWNER,
+          },
+        });
+
+        return { user, company };
+      });
+
+      return {
+        message: 'Conta criada com sucesso',
+        user: {
+          id: result.user.id,
+          name: result.user.name,
+          email: result.user.email,
+          role: result.user.role,
+        },
+        company: {
+          id: result.company.id,
+          name: result.company.name,
+          slug: result.company.slug,
+        },
+      };
+    } catch (error) {
+      if (error instanceof HttpException) throw error;
+      throw new InternalServerErrorException('Erro interno ao registrar a conta.');
+    }
   }
 
-  const slug = data.companyName
-    .toLowerCase()
-    .trim()
-    .replace(/\s+/g, '-');
+  async login(data: LoginDto) {
+    try {
+      const user = await this.prisma.user.findUnique({
+        where: { email: data.email },
+      });
 
-  const companyExists =
-    await this.prisma.company.findUnique({
-      where: {
-        slug,
-      },
-    });
+      if (!user) throw new UnauthorizedException('E-mail ou senha incorretos.');
 
-  if (companyExists) {
-    throw new BadRequestException(
-      'Já existe uma empresa com esse nome',
-    );
-  }
+      const validPassword = await bcrypt.compare(data.password, user.password);
+      if (!validPassword) throw new UnauthorizedException('E-mail ou senha incorretos.');
 
-  const passwordHash = await bcrypt.hash(
-    data.password,
-    10,
-  );
+      const token = this.jwt.sign({
+        sub: user.id,
+        companyId: user.companyId,
+      });
 
-  const company =
-    await this.prisma.company.create({
-      data: {
-        name: data.companyName,
-        slug,
-      },
-    });
-
-  const user = await this.prisma.user.create({
-    data: {
-      name: data.userName,
-      email: data.email,
-      password: passwordHash,
-      companyId: company.id,
-      role: 'OWNER',
-    },
-  });
-
-  return {
-    message: 'Usuário criado com sucesso',
-    user: {
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      role: user.role,
-    },
-    company: {
-      id: company.id,
-      name: company.name,
-      slug: company.slug,
-    },
-  };
-}
-  async login(data: any) {
-    const user = await this.prisma.user.findUnique({
-      where: {
-        email: data.email,
-      },
-    });
-
-    if (!user) {
-      throw new UnauthorizedException();
+      return { token };
+    } catch (error) {
+      if (error instanceof HttpException) throw error;
+      throw new InternalServerErrorException('Erro interno ao realizar login.');
     }
-
-    const validPassword = await bcrypt.compare(
-      data.password,
-      user.password,
-    );
-
-    if (!validPassword) {
-      throw new UnauthorizedException();
-    }
-
-    const token = this.jwt.sign({
-      sub: user.id,
-      companyId: user.companyId,
-    });
-
-    return {
-      token,
-    };
   }
 }

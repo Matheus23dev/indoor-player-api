@@ -8,74 +8,71 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
-
+import { Request } from 'express';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-
 import { PlaylistsService } from './playlists.service';
+import { CreatePlaylistDto } from './dto/create-playlist.dto';
+import { AddPlaylistItemDto } from './dto/add-playlist-item.dto';
+
+interface AuthenticatedRequest extends Request {
+  user: {
+    id: string;
+    companyId: string;
+  };
+}
 
 @Controller('playlists')
 @UseGuards(JwtAuthGuard)
 export class PlaylistsController {
-  constructor(
-    private readonly playlistsService: PlaylistsService,
-  ) {}
+  constructor(private readonly playlistsService: PlaylistsService) {}
 
   @Post()
   create(
-    @Body() body: any,
-    @Req() req: any,
+    @Body() createPlaylistDto: CreatePlaylistDto,
+    @Req() req: AuthenticatedRequest,
   ) {
-    return this.playlistsService.create(
-      body.name,
-      req.user.companyId,
-    );
+    return this.playlistsService.create(req.user.companyId, createPlaylistDto);
   }
 
   @Get()
-  list(
-    @Req() req: any,
-  ) {
-    return this.playlistsService.list(
-      req.user.companyId,
-    );
+  list(@Req() req: AuthenticatedRequest) {
+    return this.playlistsService.list(req.user.companyId);
   }
 
   @Get(':id')
   findOne(
     @Param('id') id: string,
-    @Req() req: any,
+    @Req() req: AuthenticatedRequest,
   ) {
-    return this.playlistsService.findOne(
-      id,
-      req.user.companyId,
-    );
+    return this.playlistsService.findOne(id, req.user.companyId);
   }
 
   @Delete(':id')
-@UseGuards(JwtAuthGuard)
-remove(
-  @Param('id') id: string,
-) {
-  return this.playlistsService.remove(id);
-}
+  remove(
+    @Param('id') id: string,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.playlistsService.remove(id, req.user.companyId);
+  }
 
   @Post(':id/items')
   addItem(
     @Param('id') playlistId: string,
-    @Body() body: any,
+    @Body() addPlaylistItemDto: AddPlaylistItemDto,
+    @Req() req: AuthenticatedRequest,
   ) {
     return this.playlistsService.addItem(
       playlistId,
-      body.mediaId,
-      body.duration,
+      req.user.companyId,
+      addPlaylistItemDto,
     );
   }
 
-@Delete('items/:id')
-@UseGuards(JwtAuthGuard)
-removeItem(
-  @Param('id') id: string,
-) {
-  return this.playlistsService.removeItem(id);
-}
+  @Delete('items/:id')
+  removeItem(
+    @Param('id') id: string,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.playlistsService.removeItem(id, req.user.companyId);
+  }
 }
