@@ -1,15 +1,15 @@
 export class UpdateScheduleDto {
-  name?: string;
+    name?: string;
 
-  startDate?: Date;
+    startDate?: Date;
 
-  endDate?: Date;
+    endDate?: Date;
 
-  startTime?: string;
+    startTime?: string;
 
-  endTime?: string;
+    endTime?: string;
 
-  daysOfWeek?: string;
+    daysOfWeek?: string;
 
-  priority?: number;
-}
+    priority?: number;
+  }

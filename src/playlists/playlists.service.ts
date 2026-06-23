@@ -97,7 +97,7 @@ export class PlaylistsService {
     });
   }
 
-  async remove(id: string) {
+async remove(id: string) {
   const playlist =
     await this.prisma.playlist.findUnique({
       where: {
@@ -111,11 +111,19 @@ export class PlaylistsService {
     );
   }
 
-  return this.prisma.playlist.delete({
-    where: {
-      id,
-    },
-  });
+  return this.prisma.$transaction([
+    this.prisma.playlistItem.deleteMany({
+      where: {
+        playlistId: id,
+      },
+    }),
+
+    this.prisma.playlist.delete({
+      where: {
+        id,
+      },
+    }),
+  ]);
 }
 
  async removeItem(id: string) {
