@@ -86,7 +86,12 @@ export class PlaylistsService {
         },
       });
 
-    return this.prisma.playlistItem.create({
+      console.log(count);
+      console.log(playlistId);
+      console.log(mediaId);
+      console.log(duration);
+
+    return await this.prisma.playlistItem.create({
       data: {
         playlistId,
         mediaId,
