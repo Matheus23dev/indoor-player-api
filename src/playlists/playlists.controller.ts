@@ -7,6 +7,7 @@ import {
   Delete,
   Req,
   UseGuards,
+  Patch,
 } from '@nestjs/common';
 import { Request } from 'express';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -67,6 +68,31 @@ export class PlaylistsController {
       addPlaylistItemDto,
     );
   }
+
+  @Patch('items/:id')
+updateItem(
+  @Param('id') id: string,
+  @Body() body: any,
+) {
+  return this.playlistsService.updateItem(
+    id,
+    body.duration,
+  );
+}
+
+@Patch(':id/reorder')
+reorder(
+  @Param('id') playlistId: string,
+  @Body() body: any,
+  @Req() req: any,
+) {
+  return this.playlistsService.reorder(
+    playlistId,
+    body.items,
+    req.user.companyId,
+  );
+}
+
 
   @Delete('items/:id')
   removeItem(

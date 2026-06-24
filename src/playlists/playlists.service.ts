@@ -25,18 +25,23 @@ export class PlaylistsService {
     }
   }
 
-  async list(companyId: string) {
-    try {
-      return await this.prisma.playlist.findMany({
-        where: { companyId },
-        include: { items: true },
-        orderBy: { createdAt: 'desc' },
-      });
-    } catch (error) {
-      throw new InternalServerErrorException('Erro interno ao listar playlists.');
-    }
-  }
-
+async list(companyId: string) {
+  return this.prisma.playlist.findMany({
+    where: {
+      companyId,
+    },
+    include: {
+      items: {
+        include: {
+          media: true,
+        },
+      },
+    },
+    orderBy: {
+      createdAt: "desc",
+    },
+  });
+}
   async findOne(id: string, companyId: string) {
     try {
       const playlist = await this.prisma.playlist.findFirst({
@@ -147,4 +152,54 @@ async addItem(playlistId: string, companyId: string, dto: AddPlaylistItemDto) {
       throw new InternalServerErrorException('Erro interno ao remover item da playlist.');
     }
   }
+
+  async updateItem(
+  id: string,
+  duration: number,
+) {
+  return this.prisma.playlistItem.update({
+    where: {
+      id,
+    },
+    data: {
+      duration,
+    },
+  });
+}
+async reorder(
+  playlistId: string,
+  items: {
+    id: string;
+    order: number;
+  }[],
+  companyId: string,
+) {
+  const playlist =
+    await this.prisma.playlist.findFirst({
+      where: {
+        id: playlistId,
+        companyId,
+      },
+    });
+
+  if (!playlist) {
+    throw new NotFoundException(
+      'Playlist não encontrada.',
+    );
+  }
+
+  return this.prisma.$transaction(
+    items.map((item) =>
+      this.prisma.playlistItem.update({
+        where: {
+          id: item.id,
+        },
+        data: {
+          order: item.order,
+        },
+      }),
+    ),
+  );
+}
+
 }
