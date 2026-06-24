@@ -24,149 +24,168 @@ enum DeviceStatus {
 }
 
 model Company {
-  id          String      @id @default(uuid())
+  id String @id @default(uuid())
 
-  name        String
-  slug        String      @unique
+  name String
+  slug String @unique
 
-  users       User[]
-  devices     Device[]
-  medias      Media[]
-  playlists   Playlist[]
-  schedules   Schedule[]
+  users     User[]
+  devices   Device[]
+  medias    Media[]
+  playlists Playlist[]
+  schedules Schedule[]
+  folders   Folder[]
 
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model User {
-  id          String      @id @default(uuid())
+  id String @id @default(uuid())
 
-  name        String
-  email       String      @unique
-  password    String
+  name     String
+  email    String @unique
+  password String
 
-  role        UserRole    @default(ADMIN)
+  role UserRole @default(ADMIN)
 
-  companyId   String
-  company     Company     @relation(fields: [companyId], references: [id])
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id])
 
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model Device {
-  id            String         @id @default(uuid())
+  id String @id @default(uuid())
 
-  name          String?
+  name String?
 
-  code          String         @unique
+  code String @unique
 
-  isLinked      Boolean        @default(false)
+  isLinked Boolean @default(false)
 
-  status        DeviceStatus   @default(OFFLINE)
+  status DeviceStatus @default(OFFLINE)
 
   lastHeartbeat DateTime?
 
-  companyId     String?
-  company       Company?       @relation(fields: [companyId], references: [id])
+  companyId String?
+  company   Company? @relation(fields: [companyId], references: [id])
 
-  schedules     Schedule[]
+  schedules Schedule[]
 
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model DeviceLog {
-  id        String   @id @default(uuid())
+  id String @id @default(uuid())
 
-  deviceId  String
+  deviceId String
 
-  message   String
+  message String
 
   createdAt DateTime @default(now())
 }
 
 model Media {
-  id            String        @id @default(uuid())
+  id String @id @default(uuid())
 
-  name          String
+  name String
 
-  type          MediaType
+  type MediaType
 
-  fileUrl       String
+  fileUrl String
 
-  fileSize      Int?
+  fileSize Int?
 
-  duration      Int?
+  duration Int?
 
-  companyId     String
-  company       Company       @relation(fields: [companyId], references: [id])
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id])
+
+  // 👇 NOVAS LINHAS AQUI 👇
+  folderId String?
+  folder   Folder? @relation(fields: [folderId], references: [id], onDelete: SetNull)
 
   playlistItems PlaylistItem[]
 
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model Playlist {
-  id            String         @id @default(uuid())
+  id String @id @default(uuid())
 
-  name          String
+  name String
 
-  companyId     String
-  company       Company        @relation(fields: [companyId], references: [id])
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id])
 
-  items         PlaylistItem[]
+  items PlaylistItem[]
 
-  schedules     Schedule[]
+  schedules Schedule[]
 
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model PlaylistItem {
-  id            String        @id @default(uuid())
+  id String @id @default(uuid())
 
-  playlistId    String
-  playlist      Playlist      @relation(fields: [playlistId], references: [id], onDelete: Cascade)
+  playlistId String
+  playlist   Playlist @relation(fields: [playlistId], references: [id], onDelete: Cascade)
 
-  mediaId       String
-  media         Media         @relation(fields: [mediaId], references: [id])
+  mediaId String
+  media   Media  @relation(fields: [mediaId], references: [id])
 
-  order         Int
+  order Int
 
-  duration      Int?
+  duration Int?
 
-  createdAt     DateTime      @default(now())
+  createdAt DateTime @default(now())
 
   @@unique([playlistId, order])
 }
 
 model Schedule {
-  id            String        @id @default(uuid())
+  id String @id @default(uuid())
 
-  name          String
+  name String
 
-  companyId     String
-  company       Company       @relation(fields: [companyId], references: [id])
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id])
 
-  deviceId      String
-  device        Device        @relation(fields: [deviceId], references: [id])
+  deviceId String
+  device   Device @relation(fields: [deviceId], references: [id])
 
-  playlistId    String
-  playlist      Playlist      @relation(fields: [playlistId], references: [id])
+  playlistId String
+  playlist   Playlist @relation(fields: [playlistId], references: [id])
 
-  startDate     DateTime
-  endDate       DateTime
+  startDate DateTime
+  endDate   DateTime
 
-  startTime     String
-  endTime       String
+  startTime String
+  endTime   String
 
-  daysOfWeek    String
+  daysOfWeek String
 
-  priority      Int           @default(1)
+  priority Int @default(1)
 
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// Adicione este novo modelo para as Pastas
+model Folder {
+  id   String @id @default(uuid())
+  name String
+
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id])
+
+  medias Media[] // Relação: Uma pasta pode ter várias mídias
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }

@@ -8,6 +8,7 @@ import {
   UseGuards,
   UseInterceptors,
   UploadedFile,
+  Body,
 } from '@nestjs/common';
 import { Request } from 'express';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -41,9 +42,10 @@ export class MediasController {
   )
   upload(
     @UploadedFile() file: Express.Multer.File,
+    @Body('folderId') folderId: string,
     @Req() req: AuthenticatedRequest,
   ) {
-    return this.mediasService.upload(file, req.user.companyId);
+    return this.mediasService.upload(file, req.user.companyId, folderId);
   }
 
   @Get()
@@ -52,10 +54,7 @@ export class MediasController {
   }
 
   @Delete(':id')
-  remove(
-    @Param('id') id: string,
-    @Req() req: AuthenticatedRequest,
-  ) {
+  remove(@Param('id') id: string, @Req() req: AuthenticatedRequest) {
     return this.mediasService.remove(id, req.user.companyId);
   }
 }

@@ -13,19 +13,21 @@ import { MediaType } from '@prisma/client';
 export class MediasService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async upload(file: Express.Multer.File, companyId: string) {
+  
+  async upload(file: Express.Multer.File, companyId: string, folderId?: string) {
     try {
       const mediaType = file.mimetype.startsWith('video')
-        ? MediaType.VIDEO
+        ? MediaType.VIDEO 
         : MediaType.IMAGE;
 
       return await this.prisma.media.create({
         data: {
           name: file.originalname,
-          type: mediaType, 
+          type: mediaType,
           fileUrl: '/uploads/' + file.filename,
           fileSize: file.size,
           companyId,
+          folderId: folderId || null, 
         },
       });
     } catch (error) {

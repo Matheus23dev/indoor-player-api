@@ -15,6 +15,7 @@ import { DevicesModule } from './devices/devices.module';
 import { MediasModule } from './medias/medias.module';
 import { PlaylistsModule } from './playlists/playlists.module';
 import { SchedulesModule } from './schedules/schedules.module';
+import { FoldersModule } from './folders/folders.module';
 
 @Module({
   imports: [
@@ -40,6 +41,7 @@ import { SchedulesModule } from './schedules/schedules.module';
     MediasModule,
     PlaylistsModule,
     SchedulesModule,
+    FoldersModule
   ],
 
   controllers: [AppController],
