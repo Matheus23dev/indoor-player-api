@@ -114,57 +114,144 @@ export class DevicesService {
     }
   }
 
-  async currentPlaylist(code: string) {
-    try {
-      const device = await this.prisma.device.findUnique({
-        where: { code },
+ async currentPlaylist(code: string) {
+  try {
+    const device =
+      await this.prisma.device.findUnique({
+        where: {
+          code,
+        },
       });
 
-      if (!device) throw new NotFoundException('Dispositivo não encontrado.');
-      if (!device.isLinked) throw new BadRequestException('Dispositivo não está vinculado.');
+    if (!device) {
+      throw new NotFoundException(
+        'Dispositivo não encontrado.',
+      );
+    }
 
-      const now = new Date();
-      const currentTime = now.toTimeString().substring(0, 5);
-      const currentDay = now.getDay().toString();
+    if (!device.isLinked) {
+      throw new BadRequestException(
+        'Dispositivo não está vinculado.',
+      );
+    }
 
-      const schedules = await this.prisma.schedule.findMany({
+    const now = new Date();
+
+    const currentTime =
+      now.toTimeString().substring(0, 5);
+
+    const currentDay =
+      now.getDay().toString();
+
+    const schedules =
+      await this.prisma.schedule.findMany({
         where: {
           deviceId: device.id,
-          startDate: { lte: now }, 
-          endDate: { gte: now },
+
+          startDate: {
+            lte: now,
+          },
+
+          endDate: {
+            gte: now,
+          },
         },
+
         include: {
           playlist: {
             include: {
               items: {
-                include: { media: true },
-                orderBy: { order: 'asc' },
+                include: {
+                  media: true,
+                },
+
+                orderBy: {
+                  order: 'asc',
+                },
               },
             },
           },
         },
-        orderBy: { priority: 'desc' }, 
       });
 
-      const activeSchedule = schedules.find((schedule) => {
-        const validTime = currentTime >= schedule.startTime && currentTime <= schedule.endTime;
-        const validDay = schedule.daysOfWeek.split(',').includes(currentDay);
-        return validTime && validDay;
-      });
+    const activeSchedules =
+      schedules.filter(
+        (schedule) => {
+          const validTime =
+            currentTime >=
+              schedule.startTime &&
+            currentTime <=
+              schedule.endTime;
 
-      if (!activeSchedule) {
-        return { playlist: null };
-      }
+          const validDay =
+            schedule.daysOfWeek
+              .split(',')
+              .includes(currentDay);
 
+          return (
+            validTime &&
+            validDay
+          );
+        },
+      );
+
+    const activeSchedule =
+      activeSchedules.sort(
+        (a, b) =>
+          b.priority -
+          a.priority,
+      )[0];
+
+    if (!activeSchedule) {
       return {
-        scheduleId: activeSchedule.id,
-        playlist: activeSchedule.playlist,
+        schedule: null,
+        playlist: null,
+        generatedAt:
+          new Date(),
       };
-    } catch (error) {
-      if (error instanceof HttpException) throw error;
-      throw new InternalServerErrorException('Erro ao buscar a playlist atual.');
     }
+
+    return {
+      schedule: {
+        id: activeSchedule.id,
+
+        name: activeSchedule.name,
+
+        startDate:
+          activeSchedule.startDate,
+
+        endDate:
+          activeSchedule.endDate,
+
+        startTime:
+          activeSchedule.startTime,
+
+        endTime:
+          activeSchedule.endTime,
+
+        priority:
+          activeSchedule.priority,
+      },
+
+      playlist:
+        activeSchedule.playlist,
+
+      generatedAt:
+        new Date(),
+    };
+  } catch (error) {
+    if (
+      error instanceof
+      HttpException
+    ) {
+      throw error;
+    }
+
+    throw new InternalServerErrorException(
+      'Erro ao buscar playlist atual.',
+    );
   }
+}
 
   async heartbeat(code: string) {
     try {
