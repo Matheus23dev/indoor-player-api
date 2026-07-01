@@ -7,6 +7,149 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model Company {
+  id        String     @id @default(uuid())
+  name      String
+  createdAt DateTime   @default(now())
+  slug      String     @unique
+  updatedAt DateTime   @updatedAt
+  devices   Device[]
+  folders   Folder[]
+  medias    Media[]
+  playlists Playlist[]
+  schedules Schedule[]
+  users     User[]
+}
+
+model User {
+  id        String   @id @default(uuid())
+  name      String
+  email     String   @unique
+  password  String
+  companyId String
+  createdAt DateTime @default(now())
+  role      UserRole @default(ADMIN)
+  updatedAt DateTime @updatedAt
+  company   Company  @relation(fields: [companyId], references: [id])
+
+  @@index([companyId])
+}
+
+model Device {
+  id            String       @id @default(uuid())
+  name          String?
+  code          String       @unique
+  isLinked      Boolean      @default(false)
+  companyId     String?
+  createdAt     DateTime     @default(now())
+  status        DeviceStatus @default(OFFLINE)
+  lastHeartbeat DateTime?
+  updatedAt     DateTime     @updatedAt
+  company       Company?     @relation(fields: [companyId], references: [id])
+  logs          DeviceLog[]
+  schedules     Schedule[]
+
+  @@index([companyId])
+  @@index([lastHeartbeat])
+}
+
+model DeviceLog {
+  id        String   @id @default(uuid())
+  deviceId  String
+  message   String
+  createdAt DateTime @default(now())
+  device    Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@index([deviceId])
+  @@index([createdAt])
+}
+
+model Media {
+  id            String         @id @default(uuid())
+  name          String
+  type          MediaType
+  fileUrl       String
+  fileSize      Int?
+  duration      Int?
+  companyId     String
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  folderId      String?
+  company       Company        @relation(fields: [companyId], references: [id])
+  folder        Folder?        @relation(fields: [folderId], references: [id])
+  playlistItems PlaylistItem[]
+
+  @@index([companyId])
+  @@index([folderId])
+  @@index([type])
+}
+
+model Playlist {
+  id        String         @id @default(uuid())
+  name      String
+  companyId String
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+  company   Company        @relation(fields: [companyId], references: [id])
+  items     PlaylistItem[]
+  schedules Schedule[]
+
+  @@index([companyId])
+}
+
+model PlaylistItem {
+  id         String   @id @default(uuid())
+  playlistId String
+  mediaId    String
+  order      Int
+  duration   Int?
+  createdAt  DateTime @default(now())
+  media      Media    @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+  playlist   Playlist @relation(fields: [playlistId], references: [id], onDelete: Cascade)
+
+  @@unique([playlistId, order])
+  @@index([playlistId])
+  @@index([mediaId])
+}
+
+model Schedule {
+  id         String   @id @default(uuid())
+  name       String
+  companyId  String
+  deviceId   String
+  playlistId String
+  startDate  DateTime
+  endDate    DateTime
+  startTime  String
+  endTime    String
+  daysOfWeek String
+  priority   Int      @default(1)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  active     Boolean  @default(true)
+  company    Company  @relation(fields: [companyId], references: [id])
+  device     Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  playlist   Playlist @relation(fields: [playlistId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@index([deviceId])
+  @@index([playlistId])
+  @@index([deviceId, active])
+  @@index([deviceId, startDate, endDate])
+}
+
+model Folder {
+  id        String   @id @default(uuid())
+  name      String
+  companyId String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  company   Company  @relation(fields: [companyId], references: [id])
+  medias    Media[]
+
+  @@index([companyId])
+}
+
 enum UserRole {
   OWNER
   ADMIN
@@ -21,171 +164,4 @@ enum MediaType {
 enum DeviceStatus {
   ONLINE
   OFFLINE
-}
-
-model Company {
-  id String @id @default(uuid())
-
-  name String
-  slug String @unique
-
-  users     User[]
-  devices   Device[]
-  medias    Media[]
-  playlists Playlist[]
-  schedules Schedule[]
-  folders   Folder[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
-
-model User {
-  id String @id @default(uuid())
-
-  name     String
-  email    String @unique
-  password String
-
-  role UserRole @default(ADMIN)
-
-  companyId String
-  company   Company @relation(fields: [companyId], references: [id])
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
-
-model Device {
-  id String @id @default(uuid())
-
-  name String?
-
-  code String @unique
-
-  isLinked Boolean @default(false)
-
-  status DeviceStatus @default(OFFLINE)
-
-  lastHeartbeat DateTime?
-
-  companyId String?
-  company   Company? @relation(fields: [companyId], references: [id])
-
-  schedules Schedule[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
-
-model DeviceLog {
-  id String @id @default(uuid())
-
-  deviceId String
-
-  message String
-
-  createdAt DateTime @default(now())
-}
-
-model Media {
-  id String @id @default(uuid())
-
-  name String
-
-  type MediaType
-
-  fileUrl String
-
-  fileSize Int?
-
-  duration Int?
-
-  companyId String
-  company   Company @relation(fields: [companyId], references: [id])
-
-  // 👇 NOVAS LINHAS AQUI 👇
-  folderId String?
-  folder   Folder? @relation(fields: [folderId], references: [id], onDelete: SetNull)
-
-  playlistItems PlaylistItem[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
-
-model Playlist {
-  id String @id @default(uuid())
-
-  name String
-
-  companyId String
-  company   Company @relation(fields: [companyId], references: [id])
-
-  items PlaylistItem[]
-
-  schedules Schedule[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
-
-model PlaylistItem {
-  id String @id @default(uuid())
-
-  playlistId String
-  playlist   Playlist @relation(fields: [playlistId], references: [id], onDelete: Cascade)
-
-  mediaId String
-  media   Media  @relation(fields: [mediaId], references: [id])
-
-  order Int
-
-  duration Int?
-
-  createdAt DateTime @default(now())
-
-  @@unique([playlistId, order])
-}
-
-model Schedule {
-  id String @id @default(uuid())
-
-  name String
-
-  companyId String
-  company   Company @relation(fields: [companyId], references: [id])
-
-  deviceId String
-  device   Device @relation(fields: [deviceId], references: [id])
-
-  playlistId String
-  playlist   Playlist @relation(fields: [playlistId], references: [id])
-
-  startDate DateTime
-  endDate   DateTime
-
-  startTime String
-  endTime   String
-
-  daysOfWeek String
-
-  priority Int @default(1)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
-
-// Adicione este novo modelo para as Pastas
-model Folder {
-  id   String @id @default(uuid())
-  name String
-
-  companyId String
-  company   Company @relation(fields: [companyId], references: [id])
-
-  medias Media[] // Relação: Uma pasta pode ter várias mídias
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
 }
