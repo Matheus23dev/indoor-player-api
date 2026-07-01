@@ -6,94 +6,245 @@ import {
   InternalServerErrorException,
   NotFoundException,
 } from '@nestjs/common';
+
+import {
+  Prisma,
+  UserRole,
+} from '@prisma/client';
+
 import * as bcrypt from 'bcrypt';
+
 import { PrismaService } from '../prisma/prisma.service';
+
 import { CreateUserDto } from './dto/create-user.dto';
-import { UserRole } from '@prisma/client';
 
 @Injectable()
 export class UsersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+  ) {}
 
-  async create(companyId: string, data: CreateUserDto) {
+  async create(
+    companyId: string,
+    data: CreateUserDto,
+  ) {
     try {
-      if (data.role === UserRole.OWNER) {
-        throw new BadRequestException('Não é permitido atribuir a role OWNER durante a criação.');
+      const name =
+        data.name.trim();
+
+      const email =
+        data.email
+          .trim()
+          .toLowerCase();
+
+      const password =
+        data.password.trim();
+
+      if (!name) {
+        throw new BadRequestException(
+          'O nome do usuário é obrigatório.',
+        );
       }
 
-      const userExists = await this.prisma.user.findUnique({
-        where: { email: data.email },
-      });
+      if (!email) {
+        throw new BadRequestException(
+          'O e-mail do usuário é obrigatório.',
+        );
+      }
+
+      if (!password) {
+        throw new BadRequestException(
+          'A senha do usuário é obrigatória.',
+        );
+      }
+
+      if (
+        data.role ===
+        UserRole.OWNER
+      ) {
+        throw new BadRequestException(
+          'Não é permitido atribuir a role OWNER durante a criação.',
+        );
+      }
+
+      if (
+        data.role !==
+          UserRole.ADMIN &&
+        data.role !==
+          UserRole.OPERATOR
+      ) {
+        throw new BadRequestException(
+          'A role informada é inválida.',
+        );
+      }
+
+      const userExists =
+        await this.prisma.user.findUnique({
+          where: {
+            email,
+          },
+
+          select: {
+            id: true,
+          },
+        });
 
       if (userExists) {
-        throw new ConflictException('Este e-mail já está cadastrado.');
+        throw new ConflictException(
+          'Este e-mail já está cadastrado.',
+        );
       }
 
-      const passwordHash = await bcrypt.hash(data.password, 10);
+      const passwordHash =
+        await bcrypt.hash(
+          password,
+          10,
+        );
 
       return await this.prisma.user.create({
         data: {
-          name: data.name,
-          email: data.email,
-          password: passwordHash,
-          role: data.role,
+          name,
+          email,
+          password:
+            passwordHash,
+          role:
+            data.role,
           companyId,
         },
+
         select: {
           id: true,
           name: true,
           email: true,
           role: true,
+          companyId: true,
           createdAt: true,
+          updatedAt: true,
         },
       });
     } catch (error) {
-      if (error instanceof HttpException) throw error;
-      throw new InternalServerErrorException('Erro interno ao criar usuário.');
+      this.handleError(
+        error,
+        'Erro interno ao criar usuário.',
+      );
     }
   }
 
-  async list(companyId: string) {
+  async list(
+    companyId: string,
+  ) {
     try {
       return await this.prisma.user.findMany({
-        where: { companyId },
+        where: {
+          companyId,
+        },
+
         select: {
           id: true,
           name: true,
           email: true,
           role: true,
+          companyId: true,
           createdAt: true,
+          updatedAt: true,
         },
-        orderBy: {
-          createdAt: 'desc',
-        },
+
+        orderBy: [
+          {
+            role: 'asc',
+          },
+          {
+            createdAt: 'desc',
+          },
+        ],
       });
     } catch (error) {
-      throw new InternalServerErrorException('Erro interno ao listar usuários.');
+      this.handleError(
+        error,
+        'Erro interno ao listar usuários.',
+      );
     }
   }
 
-  async findById(id: string, companyId: string) {
+  async findById(
+    id: string,
+    companyId: string,
+  ) {
     try {
-      const user = await this.prisma.user.findFirst({
-        where: { id, companyId },
-        select: {
-          id: true,
-          name: true,
-          email: true,
-          role: true,
-          createdAt: true,
-        },
-      });
+      const user =
+        await this.prisma.user.findFirst({
+          where: {
+            id,
+            companyId,
+          },
+
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            role: true,
+            companyId: true,
+            createdAt: true,
+            updatedAt: true,
+          },
+        });
 
       if (!user) {
-        throw new NotFoundException('Usuário não encontrado.');
+        throw new NotFoundException(
+          'Usuário não encontrado.',
+        );
       }
 
       return user;
     } catch (error) {
-      if (error instanceof HttpException) throw error;
-      throw new InternalServerErrorException('Erro interno ao buscar o usuário.');
+      this.handleError(
+        error,
+        'Erro interno ao buscar o usuário.',
+      );
     }
+  }
+
+  private handleError(
+    error: unknown,
+    defaultMessage: string,
+  ): never {
+    if (
+      error instanceof
+      HttpException
+    ) {
+      throw error;
+    }
+
+    if (
+      error instanceof
+      Prisma.PrismaClientKnownRequestError
+    ) {
+      if (
+        error.code ===
+        'P2002'
+      ) {
+        throw new ConflictException(
+          'Este e-mail já está cadastrado.',
+        );
+      }
+
+      if (
+        error.code ===
+        'P2025'
+      ) {
+        throw new NotFoundException(
+          'Usuário não encontrado.',
+        );
+      }
+    }
+
+    console.error(
+      '[USERS]',
+      error,
+    );
+
+    throw new InternalServerErrorException(
+      defaultMessage,
+    );
   }
 }
