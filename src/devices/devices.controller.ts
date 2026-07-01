@@ -17,7 +17,8 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { HeartbeatDto } from './dto/heartbeat.dto';
 import { PairDeviceDto } from './dto/pair-device.dto';
 
-interface AuthenticatedRequest extends Request {
+interface AuthenticatedRequest
+  extends Request {
   user: {
     id: string;
     companyId: string;
@@ -27,27 +28,15 @@ interface AuthenticatedRequest extends Request {
 @Controller('devices')
 export class DevicesController {
   constructor(
-    private readonly devicesService: DevicesService,
+    private readonly devicesService:
+      DevicesService,
   ) {}
 
-  /**
-   * Registra um novo dispositivo.
-   * Rota usada pelo aplicativo da TV.
-   *
-   * POST /devices/register
-   */
   @Post('register')
   register() {
     return this.devicesService.registerDevice();
   }
 
-  /**
-   * Consulta o dispositivo pelo código.
-   * Usada pela tela de ativação para verificar
-   * se a TV já foi vinculada.
-   *
-   * GET /devices/code/:code
-   */
   @Get('code/:code')
   findByCode(
     @Param('code') code: string,
@@ -57,12 +46,6 @@ export class DevicesController {
     );
   }
 
-  /**
-   * Retorna o agendamento e a playlist
-   * ativos para o dispositivo.
-   *
-   * GET /devices/current-playlist/:code
-   */
   @Get('current-playlist/:code')
   currentPlaylist(
     @Param('code') code: string,
@@ -72,31 +55,15 @@ export class DevicesController {
     );
   }
 
-  /**
-   * Atualiza o último heartbeat do dispositivo.
-   *
-   * POST /devices/heartbeat
-   *
-   * Body:
-   * {
-   *   "code": "ABC123"
-   * }
-   */
   @Post('heartbeat')
   heartbeat(
     @Body() dto: HeartbeatDto,
   ) {
     return this.devicesService.heartbeat(
-      dto.code,
+      dto,
     );
   }
 
-  /**
-   * Vincula o código exibido na TV
-   * à empresa autenticada.
-   *
-   * POST /devices/pair
-   */
   @Post('pair')
   @UseGuards(JwtAuthGuard)
   pair(
@@ -110,11 +77,6 @@ export class DevicesController {
     );
   }
 
-  /**
-   * Lista os dispositivos da empresa autenticada.
-   *
-   * GET /devices
-   */
   @Get()
   @UseGuards(JwtAuthGuard)
   list(
@@ -125,11 +87,18 @@ export class DevicesController {
     );
   }
 
-  /**
-   * Retorna os logs de um dispositivo.
-   *
-   * GET /devices/:id/logs
-   */
+  @Get(':id/preview')
+  @UseGuards(JwtAuthGuard)
+  preview(
+    @Param('id') id: string,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.devicesService.preview(
+      id,
+      req.user.companyId,
+    );
+  }
+
   @Get(':id/logs')
   @UseGuards(JwtAuthGuard)
   logs(
