@@ -17,8 +17,11 @@ import { PrismaService } from '../prisma/prisma.service';
 
 import { HeartbeatDto } from './dto/heartbeat.dto';
 
-const ONLINE_TIMEOUT_MS =
-  60_000;
+const ONLINE_TIMEOUT_MS = 60_000;
+
+const SCHEDULE_TIME_ZONE =
+  process.env.SCHEDULE_TIME_ZONE ??
+  'America/Sao_Paulo';
 
 const devicePreviewInclude = {
   currentPlaylist: {
@@ -65,21 +68,24 @@ const schedulePreviewSelect = {
 
 type DeviceWithPreviewRelations =
   Prisma.DeviceGetPayload<{
-    include:
-      typeof devicePreviewInclude;
+    include: typeof devicePreviewInclude;
   }>;
 
 type SchedulePreview =
   Prisma.ScheduleGetPayload<{
-    select:
-      typeof schedulePreviewSelect;
+    select: typeof schedulePreviewSelect;
   }>;
+
+interface CurrentDateTime {
+  date: string;
+  time: string;
+  dayOfWeek: number;
+}
 
 @Injectable()
 export class DevicesService {
   constructor(
-    private readonly prisma:
-      PrismaService,
+    private readonly prisma: PrismaService,
   ) {}
 
   async registerDevice() {
@@ -117,6 +123,11 @@ export class DevicesService {
           continue;
         }
 
+        console.error(
+          '[DEVICES] Erro ao registrar:',
+          error,
+        );
+
         throw new InternalServerErrorException(
           'Erro ao registrar dispositivo.',
         );
@@ -139,6 +150,12 @@ export class DevicesService {
 
       const normalizedName =
         name.trim();
+
+      if (!normalizedName) {
+        throw new BadRequestException(
+          'O nome do dispositivo é obrigatório.',
+        );
+      }
 
       const device =
         await this.prisma.device.findUnique({
@@ -186,6 +203,11 @@ export class DevicesService {
         throw error;
       }
 
+      console.error(
+        '[DEVICES] Erro ao parear:',
+        error,
+      );
+
       throw new InternalServerErrorException(
         'Erro ao parear dispositivo.',
       );
@@ -219,6 +241,14 @@ export class DevicesService {
         return [];
       }
 
+      /*
+       * Não filtramos startDate/endDate diretamente com "now".
+       *
+       * Uma data final armazenada como 00:00 poderia fazer o
+       * agendamento terminar no início do último dia.
+       *
+       * A validação correta acontece em selectActiveSchedule().
+       */
       const schedules =
         await this.prisma.schedule.findMany({
           where: {
@@ -232,14 +262,6 @@ export class DevicesService {
             },
 
             active: true,
-
-            startDate: {
-              lte: now,
-            },
-
-            endDate: {
-              gte: now,
-            },
           },
 
           select:
@@ -270,11 +292,14 @@ export class DevicesService {
 
       return devices.map(
         device => {
+          const deviceSchedules =
+            schedulesByDevice.get(
+              device.id,
+            ) ?? [];
+
           const activeSchedule =
             this.selectActiveSchedule(
-              schedulesByDevice.get(
-                device.id,
-              ) ?? [],
+              deviceSchedules,
               now,
             );
 
@@ -285,7 +310,12 @@ export class DevicesService {
           );
         },
       );
-    } catch {
+    } catch (error) {
+      console.error(
+        '[DEVICES] Erro ao listar:',
+        error,
+      );
+
       throw new InternalServerErrorException(
         'Erro ao listar dispositivos.',
       );
@@ -296,18 +326,20 @@ export class DevicesService {
     code: string,
   ) {
     try {
+      const normalizedCode =
+        this.normalizeCode(code);
+
       const device =
         await this.prisma.device.findUnique({
           where: {
             code:
-              this.normalizeCode(
-                code,
-              ),
+              normalizedCode,
           },
 
           select: {
             id: true,
             code: true,
+            name: true,
             isLinked: true,
             companyId: true,
           },
@@ -328,6 +360,11 @@ export class DevicesService {
         throw error;
       }
 
+      console.error(
+        '[DEVICES] Erro ao buscar pelo código:',
+        error,
+      );
+
       throw new InternalServerErrorException(
         'Erro ao buscar dispositivo.',
       );
@@ -338,13 +375,14 @@ export class DevicesService {
     code: string,
   ) {
     try {
+      const normalizedCode =
+        this.normalizeCode(code);
+
       const device =
         await this.prisma.device.findUnique({
           where: {
             code:
-              this.normalizeCode(
-                code,
-              ),
+              normalizedCode,
           },
         });
 
@@ -360,24 +398,31 @@ export class DevicesService {
         );
       }
 
+      if (!device.companyId) {
+        throw new BadRequestException(
+          'Dispositivo não possui uma empresa vinculada.',
+        );
+      }
+
       const now =
         new Date();
 
+      /*
+       * Busca todos os agendamentos ativos desse player.
+       *
+       * As datas, os dias e os horários serão verificados em
+       * selectActiveSchedule(), usando America/Sao_Paulo.
+       */
       const schedules =
         await this.prisma.schedule.findMany({
           where: {
             deviceId:
               device.id,
 
+            companyId:
+              device.companyId,
+
             active: true,
-
-            startDate: {
-              lte: now,
-            },
-
-            endDate: {
-              gte: now,
-            },
           },
 
           include: {
@@ -408,6 +453,8 @@ export class DevicesService {
           schedule: null,
           playlist: null,
           generatedAt: now,
+          timeZone:
+            SCHEDULE_TIME_ZONE,
         };
       }
 
@@ -431,6 +478,9 @@ export class DevicesService {
           endTime:
             activeSchedule.endTime,
 
+          daysOfWeek:
+            activeSchedule.daysOfWeek,
+
           priority:
             activeSchedule.priority,
         },
@@ -439,6 +489,9 @@ export class DevicesService {
           activeSchedule.playlist,
 
         generatedAt: now,
+
+        timeZone:
+          SCHEDULE_TIME_ZONE,
       };
     } catch (error) {
       if (
@@ -447,6 +500,11 @@ export class DevicesService {
       ) {
         throw error;
       }
+
+      console.error(
+        '[DEVICES] Erro ao buscar playlist atual:',
+        error,
+      );
 
       throw new InternalServerErrorException(
         'Erro ao buscar playlist atual.',
@@ -495,6 +553,7 @@ export class DevicesService {
       const playbackData:
         Prisma.DeviceUpdateInput = {
           lastHeartbeat: now,
+
           status:
             DeviceStatus.ONLINE,
         };
@@ -576,33 +635,39 @@ export class DevicesService {
           playlistId
             ? {
                 connect: {
-                  id: playlistId,
+                  id:
+                    playlistId,
                 },
               }
             : {
-                disconnect: true,
+                disconnect:
+                  true,
               };
 
         playbackData.currentPlaylistItem =
           playlistItemId
             ? {
                 connect: {
-                  id: playlistItemId,
+                  id:
+                    playlistItemId,
                 },
               }
             : {
-                disconnect: true,
+                disconnect:
+                  true,
               };
 
         playbackData.currentMedia =
           mediaId
             ? {
                 connect: {
-                  id: mediaId,
+                  id:
+                    mediaId,
                 },
               }
             : {
-                disconnect: true,
+                disconnect:
+                  true,
               };
 
         playbackData.currentMediaTime =
@@ -626,7 +691,8 @@ export class DevicesService {
 
       await this.prisma.device.update({
         where: {
-          id: device.id,
+          id:
+            device.id,
         },
 
         data:
@@ -645,6 +711,11 @@ export class DevicesService {
         throw error;
       }
 
+      console.error(
+        '[DEVICES] Erro no heartbeat:',
+        error,
+      );
+
       throw new InternalServerErrorException(
         'Erro ao processar heartbeat.',
       );
@@ -662,7 +733,9 @@ export class DevicesService {
       const device =
         await this.prisma.device.findFirst({
           where: {
-            id: deviceId,
+            id:
+              deviceId,
+
             companyId,
           },
 
@@ -676,20 +749,15 @@ export class DevicesService {
         );
       }
 
+      /*
+       * Novamente, a data não é filtrada diretamente no Prisma.
+       */
       const schedules =
         await this.prisma.schedule.findMany({
           where: {
             companyId,
             deviceId,
             active: true,
-
-            startDate: {
-              lte: now,
-            },
-
-            endDate: {
-              gte: now,
-            },
           },
 
           select:
@@ -715,6 +783,11 @@ export class DevicesService {
         throw error;
       }
 
+      console.error(
+        '[DEVICES] Erro no preview:',
+        error,
+      );
+
       throw new InternalServerErrorException(
         'Erro ao buscar preview do dispositivo.',
       );
@@ -729,8 +802,14 @@ export class DevicesService {
       const device =
         await this.prisma.device.findFirst({
           where: {
-            id: deviceId,
+            id:
+              deviceId,
+
             companyId,
+          },
+
+          select: {
+            id: true,
           },
         });
 
@@ -740,7 +819,7 @@ export class DevicesService {
         );
       }
 
-      return this.prisma.deviceLog.findMany({
+      return await this.prisma.deviceLog.findMany({
         where: {
           deviceId,
         },
@@ -758,6 +837,11 @@ export class DevicesService {
       ) {
         throw error;
       }
+
+      console.error(
+        '[DEVICES] Erro ao buscar logs:',
+        error,
+      );
 
       throw new InternalServerErrorException(
         'Erro ao buscar logs.',
@@ -799,7 +883,7 @@ export class DevicesService {
       );
 
     const progress =
-      duration &&
+      duration !== null &&
       duration > 0 &&
       currentTime !== null
         ? Math.min(
@@ -815,7 +899,8 @@ export class DevicesService {
         : null;
 
     return {
-      id: device.id,
+      id:
+        device.id,
 
       name:
         device.name,
@@ -850,11 +935,20 @@ export class DevicesService {
                 name:
                   activeSchedule.name,
 
+                startDate:
+                  activeSchedule.startDate,
+
+                endDate:
+                  activeSchedule.endDate,
+
                 startTime:
                   activeSchedule.startTime,
 
                 endTime:
                   activeSchedule.endTime,
+
+                daysOfWeek:
+                  activeSchedule.daysOfWeek,
 
                 priority:
                   activeSchedule.priority,
@@ -920,6 +1014,8 @@ export class DevicesService {
 
   private selectActiveSchedule<
     T extends {
+      startDate: Date;
+      endDate: Date;
       startTime: string;
       endTime: string;
       daysOfWeek: string;
@@ -930,63 +1026,290 @@ export class DevicesService {
     schedules: T[],
     now: Date,
   ): T | null {
-    const currentTime =
-      now
-        .toTimeString()
-        .substring(0, 5);
+    const current =
+      this.getCurrentDateTimeInTimeZone(
+        now,
+        SCHEDULE_TIME_ZONE,
+      );
 
-    const currentDay =
-      now
-        .getDay()
-        .toString();
+    const activeSchedules =
+      schedules.filter(
+        schedule => {
+          if (!schedule.active) {
+            return false;
+          }
+
+          const startDate =
+            this.formatScheduleDate(
+              schedule.startDate,
+            );
+
+          const endDate =
+            this.formatScheduleDate(
+              schedule.endDate,
+            );
+
+          const validDate =
+            current.date >=
+              startDate &&
+            current.date <=
+              endDate;
+
+          if (!validDate) {
+            return false;
+          }
+
+          const daysOfWeek =
+            this.parseDaysOfWeek(
+              schedule.daysOfWeek,
+            );
+
+          const validDay =
+            daysOfWeek.includes(
+              current.dayOfWeek,
+            );
+
+          if (!validDay) {
+            return false;
+          }
+
+          return this.isTimeWithinSchedule(
+            current.time,
+            schedule.startTime,
+            schedule.endTime,
+          );
+        },
+      );
+
+    activeSchedules.sort(
+      (
+        first,
+        second,
+      ) =>
+        second.priority -
+        first.priority,
+    );
 
     return (
-      schedules
-        .filter(
-          schedule => {
-            const validTime =
-              currentTime >=
-                schedule.startTime &&
-              currentTime <=
-                schedule.endTime;
+      activeSchedules[0] ??
+      null
+    );
+  }
 
-            const validDay =
-              schedule.daysOfWeek
-                .split(',')
-                .map(day =>
-                  day.trim(),
-                )
-                .includes(
-                  currentDay,
-                );
+  private getCurrentDateTimeInTimeZone(
+    date: Date,
+    timeZone: string,
+  ): CurrentDateTime {
+    const formatter =
+      new Intl.DateTimeFormat(
+        'en-US',
+        {
+          timeZone,
 
-            return (
-              schedule.active &&
-              validTime &&
-              validDay
-            );
-          },
-        )
-        .sort(
-          (
-            first,
-            second,
-          ) =>
-            second.priority -
-            first.priority,
-        )[0] ?? null
+          year:
+            'numeric',
+
+          month:
+            '2-digit',
+
+          day:
+            '2-digit',
+
+          hour:
+            '2-digit',
+
+          minute:
+            '2-digit',
+
+          weekday:
+            'short',
+
+          hourCycle:
+            'h23',
+        },
+      );
+
+    const formattedParts =
+      formatter.formatToParts(
+        date,
+      );
+
+    const getPart = (
+      type: Intl.DateTimeFormatPartTypes,
+    ) =>
+      formattedParts.find(
+        part =>
+          part.type === type,
+      )?.value;
+
+    const year =
+      getPart('year');
+
+    const month =
+      getPart('month');
+
+    const day =
+      getPart('day');
+
+    const hour =
+      getPart('hour');
+
+    const minute =
+      getPart('minute');
+
+    const weekDay =
+      getPart('weekday');
+
+    if (
+      !year ||
+      !month ||
+      !day ||
+      !hour ||
+      !minute ||
+      !weekDay
+    ) {
+      throw new InternalServerErrorException(
+        'Não foi possível calcular a data e o horário atuais.',
+      );
+    }
+
+    const weekDays:
+      Record<string, number> = {
+      Sun: 0,
+      Mon: 1,
+      Tue: 2,
+      Wed: 3,
+      Thu: 4,
+      Fri: 5,
+      Sat: 6,
+    };
+
+    const dayOfWeek =
+      weekDays[weekDay];
+
+    if (
+      dayOfWeek ===
+      undefined
+    ) {
+      throw new InternalServerErrorException(
+        'Não foi possível identificar o dia da semana atual.',
+      );
+    }
+
+    return {
+      date:
+        `${year}-${month}-${day}`,
+
+      time:
+        `${hour}:${minute}`,
+
+      dayOfWeek,
+    };
+  }
+
+  private formatScheduleDate(
+    date: Date,
+  ) {
+    /*
+     * startDate/endDate representam datas sem horário.
+     *
+     * Exemplo:
+     * 2026-07-02T00:00:00.000Z
+     * vira:
+     * 2026-07-02
+     */
+    return date
+      .toISOString()
+      .slice(0, 10);
+  }
+
+  private parseDaysOfWeek(
+    value: string,
+  ) {
+    return [
+      ...new Set(
+        value
+          .split(',')
+          .map(day =>
+            Number(
+              day.trim(),
+            ),
+          )
+          .filter(
+            day =>
+              Number.isInteger(
+                day,
+              ) &&
+              day >= 0 &&
+              day <= 6,
+          ),
+      ),
+    ];
+  }
+
+  private isTimeWithinSchedule(
+    currentTime: string,
+    startTime: string,
+    endTime: string,
+  ) {
+    /*
+     * Se início e fim forem iguais,
+     * o agendamento é considerado inválido/inativo.
+     */
+    if (
+      startTime === endTime
+    ) {
+      return false;
+    }
+
+    /*
+     * Horário normal.
+     *
+     * Exemplo:
+     * 08:00 até 18:00
+     */
+    if (
+      startTime < endTime
+    ) {
+      return (
+        currentTime >=
+          startTime &&
+        currentTime <
+          endTime
+      );
+    }
+
+    /*
+     * Horário atravessando a meia-noite.
+     *
+     * Exemplo:
+     * 22:00 até 02:00
+     */
+    return (
+      currentTime >=
+        startTime ||
+      currentTime <
+        endTime
     );
   }
 
   private calculateEstimatedCurrentTime(
     savedTime: number | null,
+
     playbackUpdatedAt:
       Date | null,
-    duration: number | null,
-    status: DeviceStatus,
+
+    duration:
+      number | null,
+
+    status:
+      DeviceStatus,
+
     now: Date,
   ) {
-    if (savedTime === null) {
+    if (
+      savedTime === null
+    ) {
       return null;
     }
 
