@@ -17,14 +17,6 @@ import {
   ROLES_KEY,
 } from './decorators/roles.decorators';
 
-interface RequestUser {
-  user?: {
-    id: string;
-    companyId: string;
-    role: UserRole;
-  };
-}
-
 @Injectable()
 export class RolesGuard
   implements CanActivate
@@ -35,18 +27,15 @@ export class RolesGuard
 
   canActivate(
     context: ExecutionContext,
-  ) {
+  ): boolean {
     const requiredRoles =
-      this.reflector
-        .getAllAndOverride<
-          UserRole[]
-        >(
-          ROLES_KEY,
-          [
-            context.getHandler(),
-            context.getClass(),
-          ],
-        );
+      this.reflector.getAllAndOverride<UserRole[]>(
+        ROLES_KEY,
+        [
+          context.getHandler(),
+          context.getClass(),
+        ],
+      );
 
     if (
       !requiredRoles ||
@@ -58,17 +47,23 @@ export class RolesGuard
     const request =
       context
         .switchToHttp()
-        .getRequest<RequestUser>();
+        .getRequest();
 
-    const userRole =
-      request.user?.role;
+    const user =
+      request.user;
 
-    if (
-      !userRole ||
-      !requiredRoles.includes(
-        userRole,
-      )
-    ) {
+    if (!user?.role) {
+      throw new ForbiddenException(
+        'Você não possui uma função válida.',
+      );
+    }
+
+    const hasPermission =
+      requiredRoles.includes(
+        user.role,
+      );
+
+    if (!hasPermission) {
       throw new ForbiddenException(
         'Você não possui permissão para gerenciar usuários.',
       );
