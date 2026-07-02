@@ -74,26 +74,71 @@ export class AuthService {
     }
   }
 
-  async login(data: LoginDto) {
-    try {
-      const user = await this.prisma.user.findUnique({
-        where: { email: data.email },
+async login(data: LoginDto) {
+  try {
+    const email =
+      data.email
+        .trim()
+        .toLowerCase();
+
+    const user =
+      await this.prisma.user.findUnique({
+        where: {
+          email,
+        },
       });
 
-      if (!user) throw new UnauthorizedException('E-mail ou senha incorretos.');
+    if (!user) {
+      throw new UnauthorizedException(
+        'E-mail ou senha incorretos.',
+      );
+    }
 
-      const validPassword = await bcrypt.compare(data.password, user.password);
-      if (!validPassword) throw new UnauthorizedException('E-mail ou senha incorretos.');
+    const validPassword =
+      await bcrypt.compare(
+        data.password,
+        user.password,
+      );
 
-      const token = this.jwt.sign({
+    if (!validPassword) {
+      throw new UnauthorizedException(
+        'E-mail ou senha incorretos.',
+      );
+    }
+
+    const token =
+      await this.jwt.signAsync({
         sub: user.id,
         companyId: user.companyId,
+        role: user.role,
       });
 
-      return { token };
-    } catch (error) {
-      if (error instanceof HttpException) throw error;
-      throw new InternalServerErrorException('Erro interno ao realizar login.');
+    return {
+      token,
+
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        companyId: user.companyId,
+      },
+    };
+  } catch (error) {
+    if (
+      error instanceof HttpException
+    ) {
+      throw error;
     }
+
+    console.error(
+      '[AUTH LOGIN]',
+      error,
+    );
+
+    throw new InternalServerErrorException(
+      'Erro interno ao realizar login.',
+    );
   }
+}
 }
