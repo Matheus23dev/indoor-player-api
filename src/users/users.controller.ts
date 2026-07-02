@@ -20,7 +20,8 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorators';
 
-interface AuthenticatedRequest extends Request {
+interface AuthenticatedRequest
+  extends Request {
   user: {
     id: string;
     companyId: string;
@@ -29,48 +30,44 @@ interface AuthenticatedRequest extends Request {
 }
 
 @Controller('users')
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(UserRole.OWNER, UserRole.ADMIN)
+@UseGuards(
+  JwtAuthGuard,
+  RolesGuard,
+)
+@Roles(
+  UserRole.OWNER,
+  UserRole.ADMIN,
+)
 export class UsersController {
   constructor(
     private readonly usersService: UsersService,
   ) {}
 
-  /**
-   * Cria um usuário na empresa autenticada.
-   *
-   * POST /users
-   */
   @Post()
   create(
-    @Body() createUserDto: CreateUserDto,
-    @Req() req: AuthenticatedRequest,
+    @Body()
+    createUserDto: CreateUserDto,
+
+    @Req()
+    req: AuthenticatedRequest,
   ) {
     return this.usersService.create(
       req.user.companyId,
+      req.user.role,
       createUserDto,
     );
   }
 
-  /**
-   * Lista os usuários da empresa autenticada.
-   *
-   * GET /users
-   */
   @Get()
   list(
-    @Req() req: AuthenticatedRequest,
+    @Req()
+    req: AuthenticatedRequest,
   ) {
     return this.usersService.list(
       req.user.companyId,
     );
   }
 
-  /**
-   * Busca um usuário pertencente à empresa.
-   *
-   * GET /users/:id
-   */
   @Get(':id')
   findById(
     @Param(
@@ -89,4 +86,4 @@ export class UsersController {
       req.user.companyId,
     );
   }
-}
+} 

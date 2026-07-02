@@ -15,7 +15,6 @@ import {
 import * as bcrypt from 'bcrypt';
 
 import { PrismaService } from '../prisma/prisma.service';
-
 import { CreateUserDto } from './dto/create-user.dto';
 
 @Injectable()
@@ -26,19 +25,25 @@ export class UsersService {
 
   async create(
     companyId: string,
+    requesterRole: UserRole,
     data: CreateUserDto,
   ) {
     try {
       const name =
-        data.name.trim();
+        data.name?.trim();
 
       const email =
         data.email
-          .trim()
+          ?.trim()
           .toLowerCase();
 
+      /*
+       * Não use trim na senha que será salva.
+       * A senha precisa ser preservada exatamente
+       * como o usuário informou.
+       */
       const password =
-        data.password.trim();
+        data.password;
 
       if (!name) {
         throw new BadRequestException(
@@ -52,7 +57,10 @@ export class UsersService {
         );
       }
 
-      if (!password) {
+      if (
+        !password ||
+        !password.trim()
+      ) {
         throw new BadRequestException(
           'A senha do usuário é obrigatória.',
         );
@@ -75,6 +83,21 @@ export class UsersService {
       ) {
         throw new BadRequestException(
           'A role informada é inválida.',
+        );
+      }
+
+      /*
+       * ADMIN cria somente OPERATOR.
+       * OWNER pode criar ADMIN ou OPERATOR.
+       */
+      if (
+        requesterRole ===
+          UserRole.ADMIN &&
+        data.role ===
+          UserRole.ADMIN
+      ) {
+        throw new BadRequestException(
+          'Um administrador não pode criar outro administrador.',
         );
       }
 
@@ -105,10 +128,13 @@ export class UsersService {
         data: {
           name,
           email,
+
           password:
             passwordHash,
+
           role:
             data.role,
+
           companyId,
         },
 
