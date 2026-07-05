@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Post,
@@ -110,6 +111,30 @@ export class DevicesController {
     @Req() req: AuthenticatedRequest,
   ) {
     return this.devicesService.logs(
+      id,
+      req.user.companyId,
+    );
+  }
+
+  @Post(':id/unlink')
+  @UseGuards(JwtAuthGuard)
+  unlink(
+    @Param('id') id: string,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.devicesService.unlinkDevice(
+      id,
+      req.user.companyId,
+    );
+  }
+
+  @Delete(':id')
+  @UseGuards(JwtAuthGuard)
+  delete(
+    @Param('id') id: string,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.devicesService.deleteDevice(
       id,
       req.user.companyId,
     );
