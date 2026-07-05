@@ -6,12 +6,11 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 
-import { randomInt } from 'crypto';
+import { createHash, randomInt } from 'crypto';
 
-import {
-  DeviceStatus,
-  Prisma,
-} from '@prisma/client';
+import { DateTime } from 'luxon';
+
+import { DeviceStatus, Prisma } from '@prisma/client';
 
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -20,8 +19,17 @@ import { HeartbeatDto } from './dto/heartbeat.dto';
 const ONLINE_TIMEOUT_MS = 60_000;
 
 const SCHEDULE_TIME_ZONE =
-  process.env.SCHEDULE_TIME_ZONE ??
-  'America/Sao_Paulo';
+  process.env.SCHEDULE_TIME_ZONE ?? 'America/Fortaleza';
+
+const DEFAULT_PROGRAMMING_HOURS = 24;
+
+const MAX_PROGRAMMING_HOURS = 168;
+
+const DEFAULT_PROGRAMMING_LIMIT = 20;
+
+const MAX_PROGRAMMING_LIMIT = 100;
+
+const MAX_PROGRAMMING_RULES = 500;
 
 const devicePreviewInclude = {
   currentPlaylist: {
@@ -66,67 +74,115 @@ const schedulePreviewSelect = {
   active: true,
 } satisfies Prisma.ScheduleSelect;
 
-type DeviceWithPreviewRelations =
-  Prisma.DeviceGetPayload<{
-    include: typeof devicePreviewInclude;
-  }>;
+const programmingScheduleSelect = {
+  id: true,
+  name: true,
+  startDate: true,
+  endDate: true,
+  startTime: true,
+  endTime: true,
+  daysOfWeek: true,
+  priority: true,
+  active: true,
+  updatedAt: true,
 
-type SchedulePreview =
-  Prisma.ScheduleGetPayload<{
-    select: typeof schedulePreviewSelect;
-  }>;
+  playlist: {
+    select: {
+      id: true,
+      name: true,
+      updatedAt: true,
 
-interface CurrentDateTime {
-  date: string;
-  time: string;
-  dayOfWeek: number;
+      items: {
+        orderBy: {
+          order: 'asc',
+        },
+
+        select: {
+          id: true,
+          order: true,
+          duration: true,
+          createdAt: true,
+
+          media: {
+            select: {
+              id: true,
+              name: true,
+              type: true,
+              fileUrl: true,
+              fileSize: true,
+              duration: true,
+              updatedAt: true,
+            },
+          },
+        },
+      },
+    },
+  },
+} satisfies Prisma.ScheduleSelect;
+
+type DeviceWithPreviewRelations = Prisma.DeviceGetPayload<{
+  include: typeof devicePreviewInclude;
+}>;
+
+type SchedulePreview = Prisma.ScheduleGetPayload<{
+  select: typeof schedulePreviewSelect;
+}>;
+
+type ProgrammingSchedule = Prisma.ScheduleGetPayload<{
+  select: typeof programmingScheduleSelect;
+}>;
+
+interface ProgrammingOccurrence {
+  occurrenceId: string;
+  scheduleId: string;
+  scheduleName: string;
+  playlistId: string;
+  startAt: string;
+  endAt: string;
+  startTimestamp: number;
+  endTimestamp: number;
+  priority: number;
+}
+
+interface ScheduleRule {
+  startDate: Date;
+  endDate: Date;
+  startTime: string;
+  endTime: string;
+  daysOfWeek: string;
+  priority: number;
+  active: boolean;
 }
 
 @Injectable()
 export class DevicesService {
-  constructor(
-    private readonly prisma: PrismaService,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   async registerDevice() {
-    for (
-      let attempt = 0;
-      attempt < 10;
-      attempt += 1
-    ) {
-      const code =
-        this.generateCode();
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      const code = this.generateCode();
 
       try {
-        const device =
-          await this.prisma.device.create({
-            data: {
-              code,
-              isLinked: false,
-              status:
-                DeviceStatus.OFFLINE,
-            },
-          });
+        const device = await this.prisma.device.create({
+          data: {
+            code,
+            isLinked: false,
+            status: DeviceStatus.OFFLINE,
+          },
+        });
 
         return {
           id: device.id,
           code: device.code,
-          isLinked:
-            device.isLinked,
+          isLinked: device.isLinked,
         };
       } catch (error) {
         if (
-          error instanceof
-            Prisma.PrismaClientKnownRequestError &&
+          error instanceof Prisma.PrismaClientKnownRequestError &&
           error.code === 'P2002'
         ) {
           continue;
         }
-
-        console.error(
-          '[DEVICES] Erro ao registrar:',
-          error,
-        );
 
         throw new InternalServerErrorException(
           'Erro ao registrar dispositivo.',
@@ -139,30 +195,17 @@ export class DevicesService {
     );
   }
 
-  async pairDevice(
-    code: string,
-    name: string,
-    companyId: string,
-  ) {
+  async pairDevice(code: string, name: string, companyId: string) {
     try {
-      const normalizedCode =
-        this.normalizeCode(code);
+      const normalizedCode = this.normalizeCode(code);
 
-      const normalizedName =
-        name.trim();
+      const normalizedName = name.trim();
 
-      if (!normalizedName) {
-        throw new BadRequestException(
-          'O nome do dispositivo é obrigatório.',
-        );
-      }
-
-      const device =
-        await this.prisma.device.findUnique({
-          where: {
-            code: normalizedCode,
-          },
-        });
+      const device = await this.prisma.device.findUnique({
+        where: {
+          code: normalizedCode,
+        },
+      });
 
       if (!device) {
         throw new NotFoundException(
@@ -176,18 +219,17 @@ export class DevicesService {
         );
       }
 
-      const updatedDevice =
-        await this.prisma.device.update({
-          where: {
-            id: device.id,
-          },
+      const updatedDevice = await this.prisma.device.update({
+        where: {
+          id: device.id,
+        },
 
-          data: {
-            name: normalizedName,
-            companyId,
-            isLinked: true,
-          },
-        });
+        data: {
+          name: normalizedName,
+          companyId,
+          isLinked: true,
+        },
+      });
 
       await this.createLog(
         device.id,
@@ -196,206 +238,115 @@ export class DevicesService {
 
       return updatedDevice;
     } catch (error) {
-      if (
-        error instanceof
-        HttpException
-      ) {
+      if (error instanceof HttpException) {
         throw error;
       }
 
-      console.error(
-        '[DEVICES] Erro ao parear:',
-        error,
-      );
-
-      throw new InternalServerErrorException(
-        'Erro ao parear dispositivo.',
-      );
+      throw new InternalServerErrorException('Erro ao parear dispositivo.');
     }
   }
 
-  async list(
-    companyId: string,
-  ) {
+  async list(companyId: string) {
     try {
-      const now =
-        new Date();
+      const now = new Date();
 
-      const devices =
-        await this.prisma.device.findMany({
-          where: {
-            companyId,
-          },
+      const devices = await this.prisma.device.findMany({
+        where: {
+          companyId,
+        },
 
-          include:
-            devicePreviewInclude,
+        include: devicePreviewInclude,
 
-          orderBy: {
-            createdAt: 'desc',
-          },
-        });
+        orderBy: {
+          createdAt: 'desc',
+        },
+      });
 
-      if (
-        devices.length === 0
-      ) {
+      if (devices.length === 0) {
         return [];
       }
 
-      /*
-       * Não filtramos startDate/endDate diretamente com "now".
-       *
-       * Uma data final armazenada como 00:00 poderia fazer o
-       * agendamento terminar no início do último dia.
-       *
-       * A validação correta acontece em selectActiveSchedule().
-       */
-      const schedules =
-        await this.prisma.schedule.findMany({
-          where: {
-            companyId,
+      const schedules = await this.prisma.schedule.findMany({
+        where: {
+          companyId,
 
-            deviceId: {
-              in: devices.map(
-                device =>
-                  device.id,
-              ),
-            },
-
-            active: true,
+          deviceId: {
+            in: devices.map((device) => device.id),
           },
 
-          select:
-            schedulePreviewSelect,
-        });
-
-      const schedulesByDevice =
-        new Map<
-          string,
-          SchedulePreview[]
-        >();
-
-      schedules.forEach(
-        schedule => {
-          const current =
-            schedulesByDevice.get(
-              schedule.deviceId,
-            ) ?? [];
-
-          current.push(schedule);
-
-          schedulesByDevice.set(
-            schedule.deviceId,
-            current,
-          );
+          active: true,
         },
-      );
 
-      return devices.map(
-        device => {
-          const deviceSchedules =
-            schedulesByDevice.get(
-              device.id,
-            ) ?? [];
+        select: schedulePreviewSelect,
+      });
 
-          const activeSchedule =
-            this.selectActiveSchedule(
-              deviceSchedules,
-              now,
-            );
+      const schedulesByDevice = new Map<string, SchedulePreview[]>();
 
-          return this.buildDeviceResponse(
-            device,
-            activeSchedule,
-            now,
-          );
-        },
-      );
-    } catch (error) {
-      console.error(
-        '[DEVICES] Erro ao listar:',
-        error,
-      );
+      schedules.forEach((schedule) => {
+        const current = schedulesByDevice.get(schedule.deviceId) ?? [];
 
-      throw new InternalServerErrorException(
-        'Erro ao listar dispositivos.',
-      );
+        current.push(schedule);
+
+        schedulesByDevice.set(schedule.deviceId, current);
+      });
+
+      return devices.map((device) => {
+        const activeSchedule = this.selectActiveSchedule(
+          schedulesByDevice.get(device.id) ?? [],
+          now,
+        );
+
+        return this.buildDeviceResponse(device, activeSchedule, now);
+      });
+    } catch {
+      throw new InternalServerErrorException('Erro ao listar dispositivos.');
     }
   }
 
-  async findByCode(
-    code: string,
-  ) {
+  async findByCode(code: string) {
     try {
-      const normalizedCode =
-        this.normalizeCode(code);
+      const device = await this.prisma.device.findUnique({
+        where: {
+          code: this.normalizeCode(code),
+        },
 
-      const device =
-        await this.prisma.device.findUnique({
-          where: {
-            code:
-              normalizedCode,
-          },
-
-          select: {
-            id: true,
-            code: true,
-            name: true,
-            isLinked: true,
-            companyId: true,
-          },
-        });
+        select: {
+          id: true,
+          code: true,
+          name: true,
+          isLinked: true,
+          companyId: true,
+        },
+      });
 
       if (!device) {
-        throw new NotFoundException(
-          'Dispositivo não encontrado.',
-        );
+        throw new NotFoundException('Dispositivo não encontrado.');
       }
 
       return device;
     } catch (error) {
-      if (
-        error instanceof
-        HttpException
-      ) {
+      if (error instanceof HttpException) {
         throw error;
       }
 
-      console.error(
-        '[DEVICES] Erro ao buscar pelo código:',
-        error,
-      );
-
-      throw new InternalServerErrorException(
-        'Erro ao buscar dispositivo.',
-      );
+      throw new InternalServerErrorException('Erro ao buscar dispositivo.');
     }
   }
 
-  async currentPlaylist(
-    code: string,
-  ) {
+  async currentPlaylist(code: string) {
     try {
-      const normalizedCode =
-        this.normalizeCode(code);
-
-      const device =
-        await this.prisma.device.findUnique({
-          where: {
-            code:
-              normalizedCode,
-          },
-        });
+      const device = await this.prisma.device.findUnique({
+        where: {
+          code: this.normalizeCode(code),
+        },
+      });
 
       if (!device) {
-        throw new NotFoundException(
-          'Dispositivo não encontrado.',
-        );
+        throw new NotFoundException('Dispositivo não encontrado.');
       }
 
       if (!device.isLinked) {
-        throw new BadRequestException(
-          'Dispositivo não está vinculado.',
-        );
+        throw new BadRequestException('Dispositivo não está vinculado.');
       }
 
       if (!device.companyId) {
@@ -404,225 +355,361 @@ export class DevicesService {
         );
       }
 
-      const now =
-        new Date();
+      const now = new Date();
 
-      /*
-       * Busca todos os agendamentos ativos desse player.
-       *
-       * As datas, os dias e os horários serão verificados em
-       * selectActiveSchedule(), usando America/Sao_Paulo.
-       */
-      const schedules =
-        await this.prisma.schedule.findMany({
-          where: {
-            deviceId:
-              device.id,
+      const schedules = await this.prisma.schedule.findMany({
+        where: {
+          deviceId: device.id,
 
-            companyId:
-              device.companyId,
+          companyId: device.companyId,
 
-            active: true,
-          },
+          active: true,
+        },
 
-          include: {
-            playlist: {
-              include: {
-                items: {
-                  include: {
-                    media: true,
-                  },
+        include: {
+          playlist: {
+            include: {
+              items: {
+                include: {
+                  media: true,
+                },
 
-                  orderBy: {
-                    order: 'asc',
-                  },
+                orderBy: {
+                  order: 'asc',
                 },
               },
             },
           },
-        });
+        },
+      });
 
-      const activeSchedule =
-        this.selectActiveSchedule(
-          schedules,
-          now,
-        );
+      const activeSchedule = this.selectActiveSchedule<
+        (typeof schedules)[number]
+      >(schedules, now);
+
+      const localNow = this.getLocalDateTime(now);
 
       if (!activeSchedule) {
         return {
           schedule: null,
           playlist: null,
-          generatedAt: now,
-          timeZone:
-            SCHEDULE_TIME_ZONE,
+          generatedAt: now.toISOString(),
+          localDate: localNow.toFormat('yyyy-MM-dd'),
+          localTime: localNow.toFormat('HH:mm'),
+          timeZone: SCHEDULE_TIME_ZONE,
         };
       }
 
       return {
         schedule: {
-          id:
-            activeSchedule.id,
-
-          name:
-            activeSchedule.name,
-
-          startDate:
-            activeSchedule.startDate,
-
-          endDate:
-            activeSchedule.endDate,
-
-          startTime:
-            activeSchedule.startTime,
-
-          endTime:
-            activeSchedule.endTime,
-
-          daysOfWeek:
-            activeSchedule.daysOfWeek,
-
-          priority:
-            activeSchedule.priority,
+          id: activeSchedule.id,
+          name: activeSchedule.name,
+          startDate: this.formatDateOnly(activeSchedule.startDate),
+          endDate: this.formatDateOnly(activeSchedule.endDate),
+          startTime: activeSchedule.startTime,
+          endTime: activeSchedule.endTime,
+          daysOfWeek: this.parseDaysOfWeek(activeSchedule.daysOfWeek),
+          priority: activeSchedule.priority,
         },
 
-        playlist:
-          activeSchedule.playlist,
+        playlist: activeSchedule.playlist,
 
-        generatedAt: now,
+        generatedAt: now.toISOString(),
 
-        timeZone:
-          SCHEDULE_TIME_ZONE,
+        localDate: localNow.toFormat('yyyy-MM-dd'),
+
+        localTime: localNow.toFormat('HH:mm'),
+
+        timeZone: SCHEDULE_TIME_ZONE,
       };
     } catch (error) {
-      if (
-        error instanceof
-        HttpException
-      ) {
+      if (error instanceof HttpException) {
         throw error;
       }
 
-      console.error(
-        '[DEVICES] Erro ao buscar playlist atual:',
-        error,
+      console.error('[DEVICES] Erro ao buscar playlist atual:', error);
+
+      throw new InternalServerErrorException('Erro ao buscar playlist atual.');
+    }
+  }
+
+  async programming(
+    code: string,
+    hours = DEFAULT_PROGRAMMING_HOURS,
+    limit = DEFAULT_PROGRAMMING_LIMIT,
+  ) {
+    try {
+      const normalizedCode = this.normalizeCode(code);
+
+      const safeHours = this.normalizeProgrammingHours(hours);
+
+      const safeLimit = this.normalizeProgrammingLimit(limit);
+
+      const device = await this.prisma.device.findUnique({
+        where: {
+          code: normalizedCode,
+        },
+
+        select: {
+          id: true,
+          code: true,
+          name: true,
+          isLinked: true,
+          companyId: true,
+        },
+      });
+
+      if (!device) {
+        throw new NotFoundException('Dispositivo não encontrado.');
+      }
+
+      if (!device.isLinked) {
+        throw new BadRequestException('Dispositivo não está vinculado.');
+      }
+
+      if (!device.companyId) {
+        throw new BadRequestException(
+          'Dispositivo não possui uma empresa vinculada.',
+        );
+      }
+
+      const serverNow = new Date();
+
+      const windowStart = this.getLocalDateTime(serverNow);
+
+      const windowEnd = windowStart.plus({
+        hours: safeHours,
+      });
+
+      const databaseStartDate = new Date(
+        `${windowStart
+          .minus({
+            days: 1,
+          })
+          .toISODate()!}T00:00:00.000Z`,
       );
 
+      const databaseEndDate = new Date(
+        `${windowEnd.toISODate()!}T23:59:59.999Z`,
+      );
+
+      const schedules = await this.prisma.schedule.findMany({
+        where: {
+          deviceId: device.id,
+
+          companyId: device.companyId,
+
+          active: true,
+
+          startDate: {
+            lte: databaseEndDate,
+          },
+
+          endDate: {
+            gte: databaseStartDate,
+          },
+        },
+
+        select: programmingScheduleSelect,
+
+        orderBy: [
+          {
+            priority: 'desc',
+          },
+          {
+            startDate: 'asc',
+          },
+          {
+            startTime: 'asc',
+          },
+        ],
+
+        take: MAX_PROGRAMMING_RULES,
+      });
+
+      const allOccurrences = schedules.flatMap((schedule) =>
+        this.createScheduleOccurrences(schedule, windowStart, windowEnd),
+      );
+
+      const nowTimestamp = windowStart.toMillis();
+
+      const selectedOccurrences = allOccurrences
+        .sort((first, second) => {
+          const firstIsActive =
+            first.startTimestamp <= nowTimestamp &&
+            nowTimestamp < first.endTimestamp;
+
+          const secondIsActive =
+            second.startTimestamp <= nowTimestamp &&
+            nowTimestamp < second.endTimestamp;
+
+          if (firstIsActive !== secondIsActive) {
+            return firstIsActive ? -1 : 1;
+          }
+
+          if (first.startTimestamp !== second.startTimestamp) {
+            return first.startTimestamp - second.startTimestamp;
+          }
+
+          return second.priority - first.priority;
+        })
+        .slice(0, safeLimit);
+
+      const selectedScheduleIds = new Set(
+        selectedOccurrences.map((occurrence) => occurrence.scheduleId),
+      );
+
+      const selectedSchedules = schedules.filter((schedule) =>
+        selectedScheduleIds.has(schedule.id),
+      );
+
+      const playlists = this.buildUniqueProgrammingPlaylists(selectedSchedules);
+
+      const currentOccurrence =
+        selectedOccurrences
+          .filter(
+            (occurrence) =>
+              occurrence.startTimestamp <= nowTimestamp &&
+              nowTimestamp < occurrence.endTimestamp,
+          )
+          .sort((first, second) => second.priority - first.priority)[0] ?? null;
+
+      const publicOccurrences = selectedOccurrences.map((occurrence) => ({
+        occurrenceId: occurrence.occurrenceId,
+        scheduleId: occurrence.scheduleId,
+        scheduleName: occurrence.scheduleName,
+        playlistId: occurrence.playlistId,
+        startAt: occurrence.startAt,
+        endAt: occurrence.endAt,
+        priority: occurrence.priority,
+      }));
+
+      const version = this.createProgrammingVersion({
+        occurrences: publicOccurrences,
+        playlists,
+      });
+
+      return {
+        serverTime: serverNow.toISOString(),
+
+        localDate: windowStart.toFormat('yyyy-MM-dd'),
+
+        localTime: windowStart.toFormat('HH:mm:ss'),
+
+        timeZone: SCHEDULE_TIME_ZONE,
+
+        version,
+
+        programmingUpdatedAt: this.getProgrammingUpdatedAt(selectedSchedules),
+
+        window: {
+          hours: safeHours,
+          limit: safeLimit,
+          startsAt: windowStart.toUTC().toISO(),
+          endsAt: windowEnd.toUTC().toISO(),
+          hasMore: allOccurrences.length > selectedOccurrences.length,
+        },
+
+        device: {
+          id: device.id,
+          code: device.code,
+          name: device.name,
+        },
+
+        currentOccurrenceId: currentOccurrence?.occurrenceId ?? null,
+
+        currentScheduleId: currentOccurrence?.scheduleId ?? null,
+
+        occurrences: publicOccurrences,
+
+        playlists,
+      };
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+
+      console.error('[DEVICES] Erro ao buscar programação:', error);
+
       throw new InternalServerErrorException(
-        'Erro ao buscar playlist atual.',
+        'Erro ao buscar programação do dispositivo.',
       );
     }
   }
 
-  async heartbeat(
-    dto: HeartbeatDto,
-  ) {
+  async heartbeat(dto: HeartbeatDto) {
     try {
-      const device =
-        await this.prisma.device.findUnique({
-          where: {
-            code:
-              this.normalizeCode(
-                dto.code,
-              ),
-          },
-        });
+      const device = await this.prisma.device.findUnique({
+        where: {
+          code: this.normalizeCode(dto.code),
+        },
+      });
 
       if (!device) {
-        throw new NotFoundException(
-          'Dispositivo não encontrado.',
-        );
+        throw new NotFoundException('Dispositivo não encontrado.');
       }
 
-      const now =
-        new Date();
+      const now = new Date();
 
-      const includesPlaybackState =
-        [
-          'playlistId',
-          'playlistItemId',
-          'mediaId',
-          'currentTime',
-          'duration',
-          'startedAt',
-        ].some(key =>
-          Object.prototype.hasOwnProperty.call(
-            dto,
-            key,
-          ),
-        );
+      const includesPlaybackState = [
+        'playlistId',
+        'playlistItemId',
+        'mediaId',
+        'currentTime',
+        'duration',
+        'startedAt',
+      ].some((key) => Object.prototype.hasOwnProperty.call(dto, key));
 
-      const playbackData:
-        Prisma.DeviceUpdateInput = {
-          lastHeartbeat: now,
-
-          status:
-            DeviceStatus.ONLINE,
-        };
+      const playbackData: Prisma.DeviceUpdateInput = {
+        lastHeartbeat: now,
+        status: DeviceStatus.ONLINE,
+      };
 
       if (includesPlaybackState) {
-        const playlistId =
-          dto.playlistId ??
-          null;
+        const playlistId = dto.playlistId ?? null;
 
-        const playlistItemId =
-          dto.playlistItemId ??
-          null;
+        const playlistItemId = dto.playlistItemId ?? null;
 
-        const mediaId =
-          dto.mediaId ??
-          null;
+        const mediaId = dto.mediaId ?? null;
 
-        const informedIds =
-          [
-            playlistId,
-            playlistItemId,
-            mediaId,
-          ].filter(Boolean).length;
+        const informedIds = [playlistId, playlistItemId, mediaId].filter(
+          Boolean,
+        ).length;
 
-        if (
-          informedIds !== 0 &&
-          informedIds !== 3
-        ) {
+        if (informedIds !== 0 && informedIds !== 3) {
           throw new BadRequestException(
             'Playlist, item e mídia devem ser informados juntos.',
           );
         }
 
-        if (
-          playlistId &&
-          playlistItemId &&
-          mediaId
-        ) {
+        if (playlistId && playlistItemId && mediaId) {
           if (!device.companyId) {
             throw new BadRequestException(
               'O dispositivo ainda não está vinculado a uma empresa.',
             );
           }
 
-          const validItem =
-            await this.prisma.playlistItem.findFirst({
-              where: {
-                id:
-                  playlistItemId,
+          const validItem = await this.prisma.playlistItem.findFirst({
+            where: {
+              id: playlistItemId,
 
-                playlistId,
+              playlistId,
 
-                mediaId,
+              mediaId,
 
-                playlist: {
-                  companyId:
-                    device.companyId,
-                },
-
-                media: {
-                  companyId:
-                    device.companyId,
-                },
+              playlist: {
+                companyId: device.companyId,
               },
 
-              select: {
-                id: true,
+              media: {
+                companyId: device.companyId,
               },
-            });
+            },
+
+            select: {
+              id: true,
+            },
+          });
 
           if (!validItem) {
             throw new BadRequestException(
@@ -631,117 +718,80 @@ export class DevicesService {
           }
         }
 
-        playbackData.currentPlaylist =
-          playlistId
-            ? {
-                connect: {
-                  id:
-                    playlistId,
-                },
-              }
-            : {
-                disconnect:
-                  true,
-              };
+        playbackData.currentPlaylist = playlistId
+          ? {
+              connect: {
+                id: playlistId,
+              },
+            }
+          : {
+              disconnect: true,
+            };
 
-        playbackData.currentPlaylistItem =
-          playlistItemId
-            ? {
-                connect: {
-                  id:
-                    playlistItemId,
-                },
-              }
-            : {
-                disconnect:
-                  true,
-              };
+        playbackData.currentPlaylistItem = playlistItemId
+          ? {
+              connect: {
+                id: playlistItemId,
+              },
+            }
+          : {
+              disconnect: true,
+            };
 
-        playbackData.currentMedia =
-          mediaId
-            ? {
-                connect: {
-                  id:
-                    mediaId,
-                },
-              }
-            : {
-                disconnect:
-                  true,
-              };
+        playbackData.currentMedia = mediaId
+          ? {
+              connect: {
+                id: mediaId,
+              },
+            }
+          : {
+              disconnect: true,
+            };
 
-        playbackData.currentMediaTime =
-          dto.currentTime ??
-          null;
+        playbackData.currentMediaTime = dto.currentTime ?? null;
 
-        playbackData.currentMediaDuration =
-          dto.duration ??
-          null;
+        playbackData.currentMediaDuration = dto.duration ?? null;
 
-        playbackData.currentMediaStartedAt =
-          dto.startedAt
-            ? new Date(
-                dto.startedAt,
-              )
-            : null;
+        playbackData.currentMediaStartedAt = dto.startedAt
+          ? new Date(dto.startedAt)
+          : null;
 
-        playbackData.playbackUpdatedAt =
-          now;
+        playbackData.playbackUpdatedAt = now;
       }
 
       await this.prisma.device.update({
         where: {
-          id:
-            device.id,
+          id: device.id,
         },
 
-        data:
-          playbackData,
+        data: playbackData,
       });
 
       return {
         success: true,
-        receivedAt: now,
+        receivedAt: now.toISOString(),
       };
     } catch (error) {
-      if (
-        error instanceof
-        HttpException
-      ) {
+      if (error instanceof HttpException) {
         throw error;
       }
 
-      console.error(
-        '[DEVICES] Erro no heartbeat:',
-        error,
-      );
-
-      throw new InternalServerErrorException(
-        'Erro ao processar heartbeat.',
-      );
+      throw new InternalServerErrorException('Erro ao processar heartbeat.');
     }
   }
 
-  async preview(
-    deviceId: string,
-    companyId: string,
-  ) {
+  async preview(deviceId: string, companyId: string) {
     try {
-      const now =
-        new Date();
+      const now = new Date();
 
-      const device =
-        await this.prisma.device.findFirst({
-          where: {
-            id:
-              deviceId,
+      const device = await this.prisma.device.findFirst({
+        where: {
+          id: deviceId,
+          companyId,
+        },
 
-            companyId,
-          },
-
-          include:
-            devicePreviewInclude,
-        });
+        include: devicePreviewInclude,
+      });
 
       if (!device) {
         throw new NotFoundException(
@@ -749,44 +799,25 @@ export class DevicesService {
         );
       }
 
-      /*
-       * Novamente, a data não é filtrada diretamente no Prisma.
-       */
-      const schedules =
-        await this.prisma.schedule.findMany({
-          where: {
-            companyId,
-            deviceId,
-            active: true,
-          },
+      const schedules = await this.prisma.schedule.findMany({
+        where: {
+          companyId,
+          deviceId,
+          active: true,
+        },
 
-          select:
-            schedulePreviewSelect,
-        });
+        select: schedulePreviewSelect,
+      });
 
-      const activeSchedule =
-        this.selectActiveSchedule(
-          schedules,
-          now,
-        );
+      const activeSchedule = this.selectActiveSchedule<
+        (typeof schedules)[number]
+      >(schedules, now);
 
-      return this.buildDeviceResponse(
-        device,
-        activeSchedule,
-        now,
-      );
+      return this.buildDeviceResponse(device, activeSchedule, now);
     } catch (error) {
-      if (
-        error instanceof
-        HttpException
-      ) {
+      if (error instanceof HttpException) {
         throw error;
       }
-
-      console.error(
-        '[DEVICES] Erro no preview:',
-        error,
-      );
 
       throw new InternalServerErrorException(
         'Erro ao buscar preview do dispositivo.',
@@ -794,24 +825,14 @@ export class DevicesService {
     }
   }
 
-  async logs(
-    deviceId: string,
-    companyId: string,
-  ) {
+  async logs(deviceId: string, companyId: string) {
     try {
-      const device =
-        await this.prisma.device.findFirst({
-          where: {
-            id:
-              deviceId,
-
-            companyId,
-          },
-
-          select: {
-            id: true,
-          },
-        });
+      const device = await this.prisma.device.findFirst({
+        where: {
+          id: deviceId,
+          companyId,
+        },
+      });
 
       if (!device) {
         throw new NotFoundException(
@@ -819,7 +840,7 @@ export class DevicesService {
         );
       }
 
-      return await this.prisma.deviceLog.findMany({
+      return this.prisma.deviceLog.findMany({
         where: {
           deviceId,
         },
@@ -831,527 +852,427 @@ export class DevicesService {
         take: 100,
       });
     } catch (error) {
-      if (
-        error instanceof
-        HttpException
-      ) {
+      if (error instanceof HttpException) {
         throw error;
       }
 
-      console.error(
-        '[DEVICES] Erro ao buscar logs:',
-        error,
-      );
-
-      throw new InternalServerErrorException(
-        'Erro ao buscar logs.',
-      );
+      throw new InternalServerErrorException('Erro ao buscar logs.');
     }
   }
 
   private buildDeviceResponse(
-    device:
-      DeviceWithPreviewRelations,
+    device: DeviceWithPreviewRelations,
 
-    activeSchedule:
-      | SchedulePreview
-      | null,
+    activeSchedule: SchedulePreview | null,
 
     now: Date,
   ) {
-    const status =
-      this.getDeviceStatus(
-        device.lastHeartbeat,
-        now,
-      );
+    const status = this.getDeviceStatus(device.lastHeartbeat, now);
 
     const duration =
       device.currentMediaDuration ??
-      device.currentPlaylistItem
-        ?.duration ??
-      device.currentMedia
-        ?.duration ??
+      device.currentPlaylistItem?.duration ??
+      device.currentMedia?.duration ??
       null;
 
-    const currentTime =
-      this.calculateEstimatedCurrentTime(
-        device.currentMediaTime,
-        device.playbackUpdatedAt,
-        duration,
-        status,
-        now,
-      );
+    const currentTime = this.calculateEstimatedCurrentTime(
+      device.currentMediaTime,
+      device.playbackUpdatedAt,
+      duration,
+      status,
+      now,
+    );
 
     const progress =
-      duration !== null &&
-      duration > 0 &&
-      currentTime !== null
-        ? Math.min(
-            100,
-            Math.max(
-              0,
-              (
-                currentTime /
-                duration
-              ) * 100,
-            ),
-          )
+      duration && duration > 0 && currentTime !== null
+        ? Math.min(100, Math.max(0, (currentTime / duration) * 100))
         : null;
 
     return {
-      id:
-        device.id,
+      id: device.id,
 
-      name:
-        device.name,
+      name: device.name,
 
-      code:
-        device.code,
+      code: device.code,
 
-      isLinked:
-        device.isLinked,
+      isLinked: device.isLinked,
 
       status,
 
-      lastHeartbeat:
-        device.lastHeartbeat,
+      lastHeartbeat: device.lastHeartbeat,
 
-      companyId:
-        device.companyId,
+      companyId: device.companyId,
 
-      createdAt:
-        device.createdAt,
+      createdAt: device.createdAt,
 
-      updatedAt:
-        device.updatedAt,
+      updatedAt: device.updatedAt,
 
       preview: {
-        schedule:
-          activeSchedule
-            ? {
-                id:
-                  activeSchedule.id,
+        schedule: activeSchedule
+          ? {
+              id: activeSchedule.id,
 
-                name:
-                  activeSchedule.name,
+              name: activeSchedule.name,
 
-                startDate:
-                  activeSchedule.startDate,
+              startDate: this.formatDateOnly(activeSchedule.startDate),
 
-                endDate:
-                  activeSchedule.endDate,
+              endDate: this.formatDateOnly(activeSchedule.endDate),
 
-                startTime:
-                  activeSchedule.startTime,
+              startTime: activeSchedule.startTime,
 
-                endTime:
-                  activeSchedule.endTime,
+              endTime: activeSchedule.endTime,
 
-                daysOfWeek:
-                  activeSchedule.daysOfWeek,
+              daysOfWeek: this.parseDaysOfWeek(activeSchedule.daysOfWeek),
 
-                priority:
-                  activeSchedule.priority,
-              }
-            : null,
+              priority: activeSchedule.priority,
+            }
+          : null,
 
-        playlist:
-          device.currentPlaylist
-            ? {
-                id:
-                  device.currentPlaylist.id,
+        playlist: device.currentPlaylist
+          ? {
+              id: device.currentPlaylist.id,
 
-                name:
-                  device.currentPlaylist.name,
-              }
-            : null,
+              name: device.currentPlaylist.name,
+            }
+          : null,
 
-        item:
-          device.currentPlaylistItem
-            ? {
-                id:
-                  device.currentPlaylistItem.id,
+        item: device.currentPlaylistItem
+          ? {
+              id: device.currentPlaylistItem.id,
 
-                order:
-                  device.currentPlaylistItem.order,
-              }
-            : null,
+              order: device.currentPlaylistItem.order,
+            }
+          : null,
 
-        media:
-          device.currentMedia
-            ? {
-                id:
-                  device.currentMedia.id,
+        media: device.currentMedia
+          ? {
+              id: device.currentMedia.id,
 
-                name:
-                  device.currentMedia.name,
+              name: device.currentMedia.name,
 
-                type:
-                  device.currentMedia.type,
+              type: device.currentMedia.type,
 
-                fileUrl:
-                  device.currentMedia.fileUrl,
+              fileUrl: device.currentMedia.fileUrl,
 
-                duration:
-                  device.currentMedia.duration,
-              }
-            : null,
+              duration: device.currentMedia.duration,
+            }
+          : null,
 
         playback: {
           currentTime,
           duration,
           progress,
 
-          startedAt:
-            device.currentMediaStartedAt,
+          startedAt: device.currentMediaStartedAt,
 
-          updatedAt:
-            device.playbackUpdatedAt,
+          updatedAt: device.playbackUpdatedAt,
         },
       },
     };
   }
 
-  private selectActiveSchedule<
-    T extends {
-      startDate: Date;
-      endDate: Date;
-      startTime: string;
-      endTime: string;
-      daysOfWeek: string;
-      priority: number;
-      active: boolean;
-    },
-  >(
+  private selectActiveSchedule<T extends ScheduleRule>(
     schedules: T[],
-    now: Date,
+    date = new Date(),
   ): T | null {
-    const current =
-      this.getCurrentDateTimeInTimeZone(
-        now,
-        SCHEDULE_TIME_ZONE,
-      );
-
-    const activeSchedules =
-      schedules.filter(
-        schedule => {
-          if (!schedule.active) {
-            return false;
-          }
-
-          const startDate =
-            this.formatScheduleDate(
-              schedule.startDate,
-            );
-
-          const endDate =
-            this.formatScheduleDate(
-              schedule.endDate,
-            );
-
-          const validDate =
-            current.date >=
-              startDate &&
-            current.date <=
-              endDate;
-
-          if (!validDate) {
-            return false;
-          }
-
-          const daysOfWeek =
-            this.parseDaysOfWeek(
-              schedule.daysOfWeek,
-            );
-
-          const validDay =
-            daysOfWeek.includes(
-              current.dayOfWeek,
-            );
-
-          if (!validDay) {
-            return false;
-          }
-
-          return this.isTimeWithinSchedule(
-            current.time,
-            schedule.startTime,
-            schedule.endTime,
-          );
-        },
-      );
-
-    activeSchedules.sort(
-      (
-        first,
-        second,
-      ) =>
-        second.priority -
-        first.priority,
-    );
+    const current = this.getLocalDateTime(date);
 
     return (
-      activeSchedules[0] ??
-      null
+      schedules
+        .filter(
+          (schedule) =>
+            schedule.active && this.isScheduleActiveAt(schedule, current),
+        )
+        .sort((first, second) => second.priority - first.priority)[0] ?? null
     );
   }
 
-  private getCurrentDateTimeInTimeZone(
-    date: Date,
-    timeZone: string,
-  ): CurrentDateTime {
-    const formatter =
-      new Intl.DateTimeFormat(
-        'en-US',
-        {
-          timeZone,
+  private isScheduleActiveAt(schedule: ScheduleRule, current: DateTime) {
+    if (schedule.startTime === schedule.endTime) {
+      return false;
+    }
 
-          year:
-            'numeric',
+    const currentDate = current.toFormat('yyyy-MM-dd');
 
-          month:
-            '2-digit',
+    const currentTime = current.toFormat('HH:mm');
 
-          day:
-            '2-digit',
+    const currentDay = current.weekday % 7;
 
-          hour:
-            '2-digit',
+    const scheduleStartDate = this.formatDateOnly(schedule.startDate);
 
-          minute:
-            '2-digit',
+    const scheduleEndDate = this.formatDateOnly(schedule.endDate);
 
-          weekday:
-            'short',
+    const validDays = this.parseDaysOfWeek(schedule.daysOfWeek);
 
-          hourCycle:
-            'h23',
+    if (schedule.startTime < schedule.endTime) {
+      return (
+        currentDate >= scheduleStartDate &&
+        currentDate <= scheduleEndDate &&
+        validDays.includes(currentDay) &&
+        currentTime >= schedule.startTime &&
+        currentTime < schedule.endTime
+      );
+    }
+
+    if (currentTime >= schedule.startTime) {
+      return (
+        currentDate >= scheduleStartDate &&
+        currentDate <= scheduleEndDate &&
+        validDays.includes(currentDay)
+      );
+    }
+
+    if (currentTime < schedule.endTime) {
+      const previous = current.minus({
+        days: 1,
+      });
+
+      const previousDate = previous.toFormat('yyyy-MM-dd');
+
+      const previousDay = previous.weekday % 7;
+
+      return (
+        previousDate >= scheduleStartDate &&
+        previousDate <= scheduleEndDate &&
+        validDays.includes(previousDay)
+      );
+    }
+
+    return false;
+  }
+
+  private createScheduleOccurrences(
+    schedule: ProgrammingSchedule,
+    windowStart: DateTime,
+    windowEnd: DateTime,
+  ): ProgrammingOccurrence[] {
+    const occurrences: ProgrammingOccurrence[] = [];
+
+    if (!schedule.active || schedule.startTime === schedule.endTime) {
+      return occurrences;
+    }
+
+    const scheduleStartDate = this.formatDateOnly(schedule.startDate);
+
+    const scheduleEndDate = this.formatDateOnly(schedule.endDate);
+
+    const validDays = this.parseDaysOfWeek(schedule.daysOfWeek);
+
+    let cursor = windowStart.startOf('day').minus({
+      days: 1,
+    });
+
+    const lastDay = windowEnd.endOf('day');
+
+    while (cursor.toMillis() <= lastDay.toMillis()) {
+      const date = cursor.toFormat('yyyy-MM-dd');
+
+      const dayOfWeek = cursor.weekday % 7;
+
+      const dateIsValid = date >= scheduleStartDate && date <= scheduleEndDate;
+
+      const dayIsValid = validDays.includes(dayOfWeek);
+
+      if (dateIsValid && dayIsValid) {
+        const startsAt = DateTime.fromFormat(
+          `${date} ${schedule.startTime}`,
+          'yyyy-MM-dd HH:mm',
+          {
+            zone: SCHEDULE_TIME_ZONE,
+          },
+        );
+
+        let endsAt: DateTime;
+
+        if (schedule.startTime < schedule.endTime) {
+          endsAt = DateTime.fromFormat(
+            `${date} ${schedule.endTime}`,
+            'yyyy-MM-dd HH:mm',
+            {
+              zone: SCHEDULE_TIME_ZONE,
+            },
+          );
+        } else {
+          const nextDate = cursor
+            .plus({
+              days: 1,
+            })
+            .toFormat('yyyy-MM-dd');
+
+          endsAt = DateTime.fromFormat(
+            `${nextDate} ${schedule.endTime}`,
+            'yyyy-MM-dd HH:mm',
+            {
+              zone: SCHEDULE_TIME_ZONE,
+            },
+          );
+        }
+
+        if (startsAt.isValid && endsAt.isValid) {
+          const overlapsWindow =
+            endsAt.toMillis() > windowStart.toMillis() &&
+            startsAt.toMillis() < windowEnd.toMillis();
+
+          if (overlapsWindow) {
+            const startTimestamp = startsAt.toMillis();
+
+            const endTimestamp = endsAt.toMillis();
+
+            occurrences.push({
+              occurrenceId: `${schedule.id}:${startTimestamp}`,
+              scheduleId: schedule.id,
+              scheduleName: schedule.name,
+              playlistId: schedule.playlist.id,
+              startAt: startsAt.toUTC().toISO()!,
+              endAt: endsAt.toUTC().toISO()!,
+              startTimestamp,
+              endTimestamp,
+              priority: schedule.priority,
+            });
+          }
+        }
+      }
+
+      cursor = cursor.plus({
+        days: 1,
+      });
+    }
+
+    return occurrences;
+  }
+
+  private buildUniqueProgrammingPlaylists(schedules: ProgrammingSchedule[]) {
+    const playlistsMap = new Map<string, ProgrammingSchedule['playlist']>();
+
+    for (const schedule of schedules) {
+      playlistsMap.set(schedule.playlist.id, schedule.playlist);
+    }
+
+    return Array.from(playlistsMap.values()).map((playlist) => ({
+      id: playlist.id,
+      name: playlist.name,
+      updatedAt: playlist.updatedAt.toISOString(),
+      items: playlist.items.map((item) => ({
+        id: item.id,
+        order: item.order,
+        duration: item.duration,
+        media: {
+          id: item.media.id,
+          name: item.media.name,
+          type: item.media.type,
+          fileUrl: item.media.fileUrl,
+          fileSize: item.media.fileSize,
+          duration: item.media.duration,
+          updatedAt: item.media.updatedAt.toISOString(),
         },
-      );
+      })),
+    }));
+  }
 
-    const formattedParts =
-      formatter.formatToParts(
-        date,
-      );
+  private getLocalDateTime(date = new Date()) {
+    const localDateTime = DateTime.fromJSDate(date).setZone(SCHEDULE_TIME_ZONE);
 
-    const getPart = (
-      type: Intl.DateTimeFormatPartTypes,
-    ) =>
-      formattedParts.find(
-        part =>
-          part.type === type,
-      )?.value;
-
-    const year =
-      getPart('year');
-
-    const month =
-      getPart('month');
-
-    const day =
-      getPart('day');
-
-    const hour =
-      getPart('hour');
-
-    const minute =
-      getPart('minute');
-
-    const weekDay =
-      getPart('weekday');
-
-    if (
-      !year ||
-      !month ||
-      !day ||
-      !hour ||
-      !minute ||
-      !weekDay
-    ) {
+    if (!localDateTime.isValid) {
       throw new InternalServerErrorException(
-        'Não foi possível calcular a data e o horário atuais.',
+        'Não foi possível calcular o horário local.',
       );
     }
 
-    const weekDays:
-      Record<string, number> = {
-      Sun: 0,
-      Mon: 1,
-      Tue: 2,
-      Wed: 3,
-      Thu: 4,
-      Fri: 5,
-      Sat: 6,
-    };
-
-    const dayOfWeek =
-      weekDays[weekDay];
-
-    if (
-      dayOfWeek ===
-      undefined
-    ) {
-      throw new InternalServerErrorException(
-        'Não foi possível identificar o dia da semana atual.',
-      );
-    }
-
-    return {
-      date:
-        `${year}-${month}-${day}`,
-
-      time:
-        `${hour}:${minute}`,
-
-      dayOfWeek,
-    };
+    return localDateTime;
   }
 
-  private formatScheduleDate(
-    date: Date,
-  ) {
-    /*
-     * startDate/endDate representam datas sem horário.
-     *
-     * Exemplo:
-     * 2026-07-02T00:00:00.000Z
-     * vira:
-     * 2026-07-02
-     */
-    return date
-      .toISOString()
-      .slice(0, 10);
+  private formatDateOnly(date: Date) {
+    return date.toISOString().slice(0, 10);
   }
 
-  private parseDaysOfWeek(
-    value: string,
-  ) {
+  private parseDaysOfWeek(value: string) {
     return [
       ...new Set(
         value
           .split(',')
-          .map(day =>
-            Number(
-              day.trim(),
-            ),
-          )
-          .filter(
-            day =>
-              Number.isInteger(
-                day,
-              ) &&
-              day >= 0 &&
-              day <= 6,
-          ),
+          .map((day) => Number(day.trim()))
+          .filter((day) => Number.isInteger(day) && day >= 0 && day <= 6),
       ),
-    ];
+    ].sort((first, second) => first - second);
   }
 
-  private isTimeWithinSchedule(
-    currentTime: string,
-    startTime: string,
-    endTime: string,
-  ) {
-    /*
-     * Se início e fim forem iguais,
-     * o agendamento é considerado inválido/inativo.
-     */
-    if (
-      startTime === endTime
-    ) {
-      return false;
+  private normalizeProgrammingHours(hours: number) {
+    if (!Number.isFinite(hours)) {
+      return DEFAULT_PROGRAMMING_HOURS;
     }
 
-    /*
-     * Horário normal.
-     *
-     * Exemplo:
-     * 08:00 até 18:00
-     */
-    if (
-      startTime < endTime
-    ) {
-      return (
-        currentTime >=
-          startTime &&
-        currentTime <
-          endTime
+    return Math.min(MAX_PROGRAMMING_HOURS, Math.max(1, Math.floor(hours)));
+  }
+
+  private normalizeProgrammingLimit(limit: number) {
+    if (!Number.isFinite(limit)) {
+      return DEFAULT_PROGRAMMING_LIMIT;
+    }
+
+    return Math.min(MAX_PROGRAMMING_LIMIT, Math.max(1, Math.floor(limit)));
+  }
+
+  private createProgrammingVersion(programming: unknown) {
+    return createHash('sha256')
+      .update(JSON.stringify(programming))
+      .digest('hex');
+  }
+
+  private getProgrammingUpdatedAt(schedules: ProgrammingSchedule[]) {
+    if (schedules.length === 0) {
+      return null;
+    }
+
+    let latestTimestamp = 0;
+
+    for (const schedule of schedules) {
+      latestTimestamp = Math.max(
+        latestTimestamp,
+        schedule.updatedAt.getTime(),
+        schedule.playlist.updatedAt.getTime(),
       );
+
+      for (const item of schedule.playlist.items) {
+        latestTimestamp = Math.max(
+          latestTimestamp,
+          item.createdAt.getTime(),
+          item.media.updatedAt.getTime(),
+        );
+      }
     }
 
-    /*
-     * Horário atravessando a meia-noite.
-     *
-     * Exemplo:
-     * 22:00 até 02:00
-     */
-    return (
-      currentTime >=
-        startTime ||
-      currentTime <
-        endTime
-    );
+    return latestTimestamp > 0 ? new Date(latestTimestamp).toISOString() : null;
   }
 
   private calculateEstimatedCurrentTime(
     savedTime: number | null,
-
-    playbackUpdatedAt:
-      Date | null,
-
-    duration:
-      number | null,
-
-    status:
-      DeviceStatus,
-
+    playbackUpdatedAt: Date | null,
+    duration: number | null,
+    status: DeviceStatus,
     now: Date,
   ) {
-    if (
-      savedTime === null
-    ) {
+    if (savedTime === null) {
       return null;
     }
 
-    let estimated =
-      Math.max(
-        0,
-        savedTime,
-      );
+    let estimated = Math.max(0, savedTime);
 
-    if (
-      status ===
-        DeviceStatus.ONLINE &&
-      playbackUpdatedAt
-    ) {
-      estimated +=
-        Math.max(
-          0,
-          Math.floor(
-            (
-              now.getTime() -
-              playbackUpdatedAt.getTime()
-            ) / 1000,
-          ),
-        );
+    if (status === DeviceStatus.ONLINE && playbackUpdatedAt) {
+      estimated += Math.max(
+        0,
+        Math.floor((now.getTime() - playbackUpdatedAt.getTime()) / 1000),
+      );
     }
 
-    if (
-      duration !== null &&
-      duration > 0
-    ) {
-      return Math.min(
-        estimated,
-        duration,
-      );
+    if (duration !== null && duration > 0) {
+      return Math.min(estimated, duration);
     }
 
     return estimated;
   }
 
   private getDeviceStatus(
-    lastHeartbeat:
-      Date | null,
+    lastHeartbeat: Date | null,
 
     now: Date,
   ) {
@@ -1359,46 +1280,29 @@ export class DevicesService {
       return DeviceStatus.OFFLINE;
     }
 
-    const difference =
-      now.getTime() -
-      lastHeartbeat.getTime();
+    const difference = now.getTime() - lastHeartbeat.getTime();
 
-    return difference <
-      ONLINE_TIMEOUT_MS
+    return difference < ONLINE_TIMEOUT_MS
       ? DeviceStatus.ONLINE
       : DeviceStatus.OFFLINE;
   }
 
   private generateCode() {
-    const alphabet =
-      'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
     return Array.from(
       {
         length: 6,
       },
-      () =>
-        alphabet[
-          randomInt(
-            0,
-            alphabet.length,
-          )
-        ],
+      () => alphabet[randomInt(0, alphabet.length)],
     ).join('');
   }
 
-  private normalizeCode(
-    code: string,
-  ) {
-    return code
-      .trim()
-      .toUpperCase();
+  private normalizeCode(code: string) {
+    return code.trim().toUpperCase();
   }
 
-  private createLog(
-    deviceId: string,
-    message: string,
-  ) {
+  private createLog(deviceId: string, message: string) {
     return this.prisma.deviceLog.create({
       data: {
         deviceId,
