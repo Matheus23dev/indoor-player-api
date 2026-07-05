@@ -9,15 +9,16 @@ import {
 
 import { Prisma } from '@prisma/client';
 
+import { DevicesGateway } from '../devices/devices.gateway';
 import { PrismaService } from '../prisma/prisma.service';
-
-import { CreatePlaylistDto } from './dto/create-playlist.dto';
 import { AddPlaylistItemDto } from './dto/add-playlist-item.dto';
+import { CreatePlaylistDto } from './dto/create-playlist.dto';
 
 @Injectable()
 export class PlaylistsService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly devicesGateway: DevicesGateway,
   ) {}
 
   async create(
@@ -191,55 +192,62 @@ export class PlaylistsService {
             media.duration ??
             null;
 
-      return await this.prisma.$transaction(
-        async tx => {
-          const lastItem =
-            await tx.playlistItem.findFirst({
-              where: {
-                playlistId,
-              },
+      const createdItem =
+        await this.prisma.$transaction(
+          async tx => {
+            const lastItem =
+              await tx.playlistItem.findFirst({
+                where: {
+                  playlistId,
+                },
 
-              orderBy: {
-                order: 'desc',
-              },
+                orderBy: {
+                  order: 'desc',
+                },
 
-              select: {
-                order: true,
-              },
-            });
+                select: {
+                  order: true,
+                },
+              });
 
-          const nextOrder =
-            lastItem
+            const nextOrder = lastItem
               ? lastItem.order + 1
               : 1;
 
-          const createdItem =
-            await tx.playlistItem.create({
-              data: {
-                playlistId,
-                mediaId: dto.mediaId,
-                order: nextOrder,
-                duration,
-              },
+            const item =
+              await tx.playlistItem.create({
+                data: {
+                  playlistId,
+                  mediaId: dto.mediaId,
+                  order: nextOrder,
+                  duration,
+                },
 
-              include: {
-                media: true,
-              },
-            });
+                include: {
+                  media: true,
+                },
+              });
 
-          await this.touchPlaylist(
-            tx,
-            playlistId,
-          );
+            await this.touchPlaylist(
+              tx,
+              playlistId,
+            );
 
-          return createdItem;
-        },
-        {
-          isolationLevel:
-            Prisma.TransactionIsolationLevel
-              .Serializable,
-        },
+            return item;
+          },
+          {
+            isolationLevel:
+              Prisma.TransactionIsolationLevel
+                .Serializable,
+          },
+        );
+
+      await this.devicesGateway.notifyPlaylistChanged(
+        playlistId,
+        'PLAYLIST_ITEM_ADDED',
       );
+
+      return createdItem;
     } catch (error) {
       this.handleError(
         error,
@@ -263,6 +271,12 @@ export class PlaylistsService {
           select: {
             id: true,
 
+            schedules: {
+              select: {
+                deviceId: true,
+              },
+            },
+
             _count: {
               select: {
                 items: true,
@@ -278,11 +292,19 @@ export class PlaylistsService {
         );
       }
 
-      /*
-       * Os agendamentos são apagados porque
-       * não podem continuar apontando para uma
-       * playlist que não existe.
-       */
+      const affectedDeviceIds =
+        Array.from(
+          new Set<string>(
+            (
+              playlist.schedules as Array<{
+                deviceId: string;
+              }>
+            ).map(
+              schedule => schedule.deviceId,
+            ),
+          ),
+        );
+
       await this.prisma.$transaction(
         async tx => {
           await tx.schedule.deleteMany({
@@ -306,15 +328,20 @@ export class PlaylistsService {
         },
       );
 
+      for (const deviceId of affectedDeviceIds) {
+        this.devicesGateway.notifyProgrammingChanged(
+          deviceId,
+          'PLAYLIST_DELETED',
+          id,
+        );
+      }
+
       return {
         success: true,
-
         message:
           'Playlist removida com sucesso.',
-
         removedItems:
           playlist._count.items,
-
         removedSchedules:
           playlist._count.schedules,
       };
@@ -377,12 +404,6 @@ export class PlaylistsService {
               },
             });
 
-          /*
-           * Primeiro usamos números negativos.
-           * Isso evita conflito com:
-           *
-           * @@unique([playlistId, order])
-           */
           for (
             let index = 0;
             index < remainingItems.length;
@@ -420,6 +441,11 @@ export class PlaylistsService {
             itemToDelete.playlistId,
           );
         },
+      );
+
+      await this.devicesGateway.notifyPlaylistChanged(
+        itemToDelete.playlistId,
+        'PLAYLIST_ITEM_REMOVED',
       );
 
       return {
@@ -472,31 +498,39 @@ export class PlaylistsService {
         );
       }
 
-      return await this.prisma.$transaction(
-        async tx => {
-          const updatedItem =
-            await tx.playlistItem.update({
-              where: {
-                id: item.id,
-              },
+      const updatedItem =
+        await this.prisma.$transaction(
+          async tx => {
+            const result =
+              await tx.playlistItem.update({
+                where: {
+                  id: item.id,
+                },
 
-              data: {
-                duration,
-              },
+                data: {
+                  duration,
+                },
 
-              include: {
-                media: true,
-              },
-            });
+                include: {
+                  media: true,
+                },
+              });
 
-          await this.touchPlaylist(
-            tx,
-            item.playlistId,
-          );
+            await this.touchPlaylist(
+              tx,
+              item.playlistId,
+            );
 
-          return updatedItem;
-        },
+            return result;
+          },
+        );
+
+      await this.devicesGateway.notifyPlaylistChanged(
+        item.playlistId,
+        'PLAYLIST_UPDATED',
       );
+
+      return updatedItem;
     } catch (error) {
       this.handleError(
         error,
@@ -569,18 +603,15 @@ export class PlaylistsService {
         );
       }
 
-      const validIds =
-        new Set(
-          playlist.items.map(
-            item => item.id,
-          ),
-        );
+      const validIds = new Set(
+        playlist.items.map(
+          item => item.id,
+        ),
+      );
 
-      const invalidItem =
-        items.find(
-          item =>
-            !validIds.has(item.id),
-        );
+      const invalidItem = items.find(
+        item => !validIds.has(item.id),
+      );
 
       if (invalidItem) {
         throw new BadRequestException(
@@ -603,14 +634,11 @@ export class PlaylistsService {
         );
       }
 
-      const invalidOrder =
-        items.find(
-          item =>
-            !Number.isInteger(
-              item.order,
-            ) ||
-            item.order < 1,
-        );
+      const invalidOrder = items.find(
+        item =>
+          !Number.isInteger(item.order) ||
+          item.order < 1,
+      );
 
       if (invalidOrder) {
         throw new BadRequestException(
@@ -618,77 +646,77 @@ export class PlaylistsService {
         );
       }
 
-      const orderedItems =
-        [...items].sort(
-          (first, second) =>
-            first.order -
-            second.order,
+      const orderedItems = [...items].sort(
+        (first, second) =>
+          first.order - second.order,
+      );
+
+      const updatedPlaylist =
+        await this.prisma.$transaction(
+          async tx => {
+            for (
+              let index = 0;
+              index < orderedItems.length;
+              index += 1
+            ) {
+              await tx.playlistItem.update({
+                where: {
+                  id: orderedItems[index].id,
+                },
+
+                data: {
+                  order: -(index + 1),
+                },
+              });
+            }
+
+            for (
+              let index = 0;
+              index < orderedItems.length;
+              index += 1
+            ) {
+              await tx.playlistItem.update({
+                where: {
+                  id: orderedItems[index].id,
+                },
+
+                data: {
+                  order: index + 1,
+                },
+              });
+            }
+
+            await this.touchPlaylist(
+              tx,
+              playlistId,
+            );
+
+            return tx.playlist.findUnique({
+              where: {
+                id: playlistId,
+              },
+
+              include: {
+                items: {
+                  include: {
+                    media: true,
+                  },
+
+                  orderBy: {
+                    order: 'asc',
+                  },
+                },
+              },
+            });
+          },
         );
 
-      return await this.prisma.$transaction(
-        async tx => {
-          /*
-           * Primeira etapa: posições temporárias.
-           */
-          for (
-            let index = 0;
-            index < orderedItems.length;
-            index += 1
-          ) {
-            await tx.playlistItem.update({
-              where: {
-                id: orderedItems[index].id,
-              },
-
-              data: {
-                order: -(index + 1),
-              },
-            });
-          }
-
-          /*
-           * Segunda etapa: posições definitivas.
-           */
-          for (
-            let index = 0;
-            index < orderedItems.length;
-            index += 1
-          ) {
-            await tx.playlistItem.update({
-              where: {
-                id: orderedItems[index].id,
-              },
-
-              data: {
-                order: index + 1,
-              },
-            });
-          }
-
-          await this.touchPlaylist(
-            tx,
-            playlistId,
-          );
-
-          return tx.playlist.findUnique({
-            where: {
-              id: playlistId,
-            },
-
-            include: {
-              items: {
-                include: {
-                  media: true,
-                },
-
-                orderBy: {
-                  order: 'asc',
-                },
-              },
-            },
-          });
-        },
+      await this.devicesGateway.notifyPlaylistChanged(
+        playlistId,
+        'PLAYLIST_REORDERED',
       );
+
+      return updatedPlaylist;
     } catch (error) {
       this.handleError(
         error,

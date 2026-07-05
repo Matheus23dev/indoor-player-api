@@ -8,8 +8,8 @@ import {
 
 import { Prisma } from '@prisma/client';
 
+import { DevicesGateway } from '../devices/devices.gateway';
 import { PrismaService } from '../prisma/prisma.service';
-
 import { CreateScheduleDto } from './dto/createSchedule.dto';
 import { UpdateScheduleDto } from './dto/updateSchedule.dto';
 
@@ -17,6 +17,7 @@ import { UpdateScheduleDto } from './dto/updateSchedule.dto';
 export class SchedulesService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly devicesGateway: DevicesGateway,
   ) {}
 
   async create(
@@ -59,17 +60,23 @@ export class SchedulesService {
         );
       }
 
-      const startDate =
-        this.parseDate(
-          data.startDate,
-          'Data inicial',
-        );
+      const name = data.name.trim();
 
-      const endDate =
-        this.parseDate(
-          data.endDate,
-          'Data final',
+      if (!name) {
+        throw new BadRequestException(
+          'O nome do agendamento é obrigatório.',
         );
+      }
+
+      const startDate = this.parseDate(
+        data.startDate,
+        'Data inicial',
+      );
+
+      const endDate = this.parseDate(
+        data.endDate,
+        'Data final',
+      );
 
       this.validateDateRange(
         startDate,
@@ -94,51 +101,39 @@ export class SchedulesService {
       const priority =
         data.priority ?? 1;
 
-      this.validatePriority(
-        priority,
+      this.validatePriority(priority);
+
+      const schedule =
+        await this.prisma.schedule.create({
+          data: {
+            name,
+            companyId,
+            deviceId: data.deviceId,
+            playlistId: data.playlistId,
+            startDate,
+            endDate,
+            startTime: data.startTime,
+            endTime: data.endTime,
+            daysOfWeek,
+            priority,
+            active: data.active ?? true,
+          },
+
+          include: {
+            device: true,
+            playlist: true,
+          },
+        });
+
+      this.devicesGateway.notifyProgrammingChanged(
+        schedule.deviceId,
+        'SCHEDULE_CREATED',
+        schedule.id,
       );
 
-      return await this.prisma.schedule.create({
-        data: {
-          name:
-            data.name.trim(),
-
-          companyId,
-
-          deviceId:
-            data.deviceId,
-
-          playlistId:
-            data.playlistId,
-
-          startDate,
-
-          endDate,
-
-          startTime:
-            data.startTime,
-
-          endTime:
-            data.endTime,
-
-          daysOfWeek,
-
-          priority,
-
-          active:
-            data.active ?? true,
-        },
-
-        include: {
-          device: true,
-          playlist: true,
-        },
-      });
+      return schedule;
     } catch (error) {
-      if (
-        error instanceof
-        HttpException
-      ) {
+      if (error instanceof HttpException) {
         throw error;
       }
 
@@ -211,21 +206,19 @@ export class SchedulesService {
         }
       }
 
-      const startDate =
-        dto.startDate
-          ? this.parseDate(
-              dto.startDate,
-              'Data inicial',
-            )
-          : schedule.startDate;
+      const startDate = dto.startDate
+        ? this.parseDate(
+            dto.startDate,
+            'Data inicial',
+          )
+        : schedule.startDate;
 
-      const endDate =
-        dto.endDate
-          ? this.parseDate(
-              dto.endDate,
-              'Data final',
-            )
-          : schedule.endDate;
+      const endDate = dto.endDate
+        ? this.parseDate(
+            dto.endDate,
+            'Data final',
+          )
+        : schedule.endDate;
 
       this.validateDateRange(
         startDate,
@@ -233,12 +226,10 @@ export class SchedulesService {
       );
 
       const startTime =
-        dto.startTime ??
-        schedule.startTime;
+        dto.startTime ?? schedule.startTime;
 
       const endTime =
-        dto.endTime ??
-        schedule.endTime;
+        dto.endTime ?? schedule.endTime;
 
       this.validateTime(
         startTime,
@@ -251,22 +242,15 @@ export class SchedulesService {
       );
 
       const priority =
-        dto.priority ??
-        schedule.priority;
+        dto.priority ?? schedule.priority;
 
-      this.validatePriority(
-        priority,
-      );
+      this.validatePriority(priority);
 
       const updateData:
-        Prisma.ScheduleUncheckedUpdateInput =
-          {};
+        Prisma.ScheduleUncheckedUpdateInput = {};
 
-      if (
-        dto.name !== undefined
-      ) {
-        const name =
-          dto.name.trim();
+      if (dto.name !== undefined) {
+        const name = dto.name.trim();
 
         if (!name) {
           throw new BadRequestException(
@@ -277,88 +261,79 @@ export class SchedulesService {
         updateData.name = name;
       }
 
-      if (
-        dto.deviceId !== undefined
-      ) {
-        updateData.deviceId =
-          dto.deviceId;
+      if (dto.deviceId !== undefined) {
+        updateData.deviceId = dto.deviceId;
       }
 
-      if (
-        dto.playlistId !== undefined
-      ) {
-        updateData.playlistId =
-          dto.playlistId;
+      if (dto.playlistId !== undefined) {
+        updateData.playlistId = dto.playlistId;
       }
 
-      if (
-        dto.startDate !== undefined
-      ) {
-        updateData.startDate =
-          startDate;
+      if (dto.startDate !== undefined) {
+        updateData.startDate = startDate;
       }
 
-      if (
-        dto.endDate !== undefined
-      ) {
-        updateData.endDate =
-          endDate;
+      if (dto.endDate !== undefined) {
+        updateData.endDate = endDate;
       }
 
-      if (
-        dto.startTime !== undefined
-      ) {
-        updateData.startTime =
-          startTime;
+      if (dto.startTime !== undefined) {
+        updateData.startTime = startTime;
       }
 
-      if (
-        dto.endTime !== undefined
-      ) {
-        updateData.endTime =
-          endTime;
+      if (dto.endTime !== undefined) {
+        updateData.endTime = endTime;
       }
 
-      if (
-        dto.daysOfWeek !== undefined
-      ) {
+      if (dto.daysOfWeek !== undefined) {
         updateData.daysOfWeek =
           this.normalizeDaysOfWeek(
             dto.daysOfWeek,
           );
       }
 
-      if (
-        dto.priority !== undefined
-      ) {
-        updateData.priority =
-          priority;
+      if (dto.priority !== undefined) {
+        updateData.priority = priority;
       }
 
-      if (
-        dto.active !== undefined
-      ) {
-        updateData.active =
-          dto.active;
+      if (dto.active !== undefined) {
+        updateData.active = dto.active;
       }
 
-      return await this.prisma.schedule.update({
-        where: {
-          id: schedule.id,
-        },
+      const updatedSchedule =
+        await this.prisma.schedule.update({
+          where: {
+            id: schedule.id,
+          },
 
-        data: updateData,
+          data: updateData,
 
-        include: {
-          device: true,
-          playlist: true,
-        },
-      });
+          include: {
+            device: true,
+            playlist: true,
+          },
+        });
+
+      this.devicesGateway.notifyProgrammingChanged(
+        updatedSchedule.deviceId,
+        'SCHEDULE_UPDATED',
+        updatedSchedule.id,
+      );
+
+      if (
+        schedule.deviceId !==
+        updatedSchedule.deviceId
+      ) {
+        this.devicesGateway.notifyProgrammingChanged(
+          schedule.deviceId,
+          'SCHEDULE_UPDATED',
+          updatedSchedule.id,
+        );
+      }
+
+      return updatedSchedule;
     } catch (error) {
-      if (
-        error instanceof
-        HttpException
-      ) {
+      if (error instanceof HttpException) {
         throw error;
       }
 
@@ -373,9 +348,7 @@ export class SchedulesService {
     }
   }
 
-  async list(
-    companyId: string,
-  ) {
+  async list(companyId: string) {
     try {
       return await this.prisma.schedule.findMany({
         where: {
@@ -450,10 +423,7 @@ export class SchedulesService {
 
       return schedule;
     } catch (error) {
-      if (
-        error instanceof
-        HttpException
-      ) {
+      if (error instanceof HttpException) {
         throw error;
       }
 
@@ -482,6 +452,7 @@ export class SchedulesService {
 
           select: {
             id: true,
+            deviceId: true,
           },
         });
 
@@ -497,16 +468,19 @@ export class SchedulesService {
         },
       });
 
+      this.devicesGateway.notifyProgrammingChanged(
+        schedule.deviceId,
+        'SCHEDULE_DELETED',
+        schedule.id,
+      );
+
       return {
         success: true,
         message:
           'Agendamento excluído com sucesso.',
       };
     } catch (error) {
-      if (
-        error instanceof
-        HttpException
-      ) {
+      if (error instanceof HttpException) {
         throw error;
       }
 
@@ -525,14 +499,8 @@ export class SchedulesService {
     value: string | Date,
     fieldName: string,
   ) {
-    if (
-      value instanceof Date
-    ) {
-      if (
-        Number.isNaN(
-          value.getTime(),
-        )
-      ) {
+    if (value instanceof Date) {
+      if (Number.isNaN(value.getTime())) {
         throw new BadRequestException(
           `${fieldName} inválida.`,
         );
@@ -542,22 +510,13 @@ export class SchedulesService {
     }
 
     const normalizedValue =
-      /^\d{4}-\d{2}-\d{2}$/.test(
-        value,
-      )
+      /^\d{4}-\d{2}-\d{2}$/.test(value)
         ? `${value}T00:00:00`
         : value;
 
-    const date =
-      new Date(
-        normalizedValue,
-      );
+    const date = new Date(normalizedValue);
 
-    if (
-      Number.isNaN(
-        date.getTime(),
-      )
-    ) {
+    if (Number.isNaN(date.getTime())) {
       throw new BadRequestException(
         `${fieldName} inválida.`,
       );
@@ -599,43 +558,32 @@ export class SchedulesService {
   private normalizeDaysOfWeek(
     value: string,
   ) {
-    if (
-      typeof value !== 'string'
-    ) {
+    if (typeof value !== 'string') {
       throw new BadRequestException(
         'Os dias da semana são inválidos.',
       );
     }
 
-    const days =
-      value
-        .split(',')
-        .map(day =>
-          day.trim(),
-        )
-        .filter(Boolean);
+    const days = value
+      .split(',')
+      .map(day => day.trim())
+      .filter(Boolean);
 
-    if (
-      days.length === 0
-    ) {
+    if (days.length === 0) {
       throw new BadRequestException(
         'Informe pelo menos um dia da semana.',
       );
     }
 
-    const invalidDay =
-      days.find(day => {
-        const number =
-          Number(day);
+    const invalidDay = days.find(day => {
+      const number = Number(day);
 
-        return (
-          !Number.isInteger(
-            number,
-          ) ||
-          number < 0 ||
-          number > 6
-        );
-      });
+      return (
+        !Number.isInteger(number) ||
+        number < 0 ||
+        number > 6
+      );
+    });
 
     if (invalidDay) {
       throw new BadRequestException(
@@ -643,11 +591,7 @@ export class SchedulesService {
       );
     }
 
-    return [
-      ...new Set(
-        days.map(Number),
-      ),
-    ]
+    return [...new Set(days.map(Number))]
       .sort(
         (first, second) =>
           first - second,
@@ -659,9 +603,7 @@ export class SchedulesService {
     priority: number,
   ) {
     if (
-      !Number.isInteger(
-        priority,
-      ) ||
+      !Number.isInteger(priority) ||
       priority < 1
     ) {
       throw new BadRequestException(
