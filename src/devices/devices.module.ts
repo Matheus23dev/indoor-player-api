@@ -1,9 +1,30 @@
-import { Module } from '@nestjs/common';
+import {
+  Module,
+} from '@nestjs/common';
 
-import { PrismaModule } from '../prisma/prisma.module';
-import { DevicesController } from './devices.controller';
-import { DevicesGateway } from './devices.gateway';
-import { DevicesService } from './devices.service';
+import {
+  PrismaModule,
+} from '../prisma/prisma.module';
+
+import {
+  DeviceAuthGuard,
+} from './device-auth.guard';
+
+import {
+  DeviceAuthService,
+} from './device-auth.service';
+
+import {
+  DevicesController,
+} from './devices.controller';
+
+import {
+  DevicesGateway,
+} from './devices.gateway';
+
+import {
+  DevicesService,
+} from './devices.service';
 
 @Module({
   imports: [
@@ -15,11 +36,15 @@ import { DevicesService } from './devices.service';
   ],
 
   providers: [
+    DeviceAuthService,
+    DeviceAuthGuard,
     DevicesService,
     DevicesGateway,
   ],
 
   exports: [
+    DeviceAuthService,
+    DeviceAuthGuard,
     DevicesService,
     DevicesGateway,
   ],

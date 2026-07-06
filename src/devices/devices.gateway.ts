@@ -1,9 +1,7 @@
 import {
-  ConnectedSocket,
-  MessageBody,
   OnGatewayConnection,
   OnGatewayDisconnect,
-  SubscribeMessage,
+  OnGatewayInit,
   WebSocketGateway,
   WebSocketServer,
 } from '@nestjs/websockets';
@@ -17,9 +15,13 @@ import {
   PrismaService,
 } from '../prisma/prisma.service';
 
-interface SubscribeDevicePayload {
-  code: string;
-}
+import {
+  DeviceAuthService,
+} from './device-auth.service';
+
+import type {
+  AuthenticatedDevice,
+} from './device-auth.types';
 
 export type ProgrammingChangeReason =
   | 'SCHEDULE_CREATED'
@@ -30,6 +32,10 @@ export type ProgrammingChangeReason =
   | 'PLAYLIST_ITEM_REMOVED'
   | 'PLAYLIST_REORDERED'
   | 'PLAYLIST_DELETED';
+
+export type DeviceSessionEndReason =
+  | 'UNLINKED'
+  | 'DELETED';
 
 @WebSocketGateway({
   namespace:
@@ -46,6 +52,7 @@ export type ProgrammingChangeReason =
 })
 export class DevicesGateway
   implements
+    OnGatewayInit,
     OnGatewayConnection,
     OnGatewayDisconnect
 {
@@ -55,136 +62,88 @@ export class DevicesGateway
   constructor(
     private readonly prisma:
       PrismaService,
+
+    private readonly deviceAuthService:
+      DeviceAuthService,
   ) {}
 
-  handleConnection(
-    client: Socket,
+  afterInit(
+    server:
+      Server,
   ) {
+    server.use(
+      (
+        socket,
+        next,
+      ) => {
+        void this
+          .authenticateSocket(
+            socket,
+          )
+          .then(() => {
+            next();
+          })
+          .catch(error => {
+            console.log(
+              '[SOCKET] Autenticação recusada:',
+              error,
+            );
+
+            next(
+              new Error(
+                'UNAUTHORIZED',
+              ),
+            );
+          });
+      },
+    );
+  }
+
+  handleConnection(
+    client:
+      Socket,
+  ) {
+    const device =
+      client.data.device as
+        | AuthenticatedDevice
+        | undefined;
+
     console.log(
-      '[SOCKET] Cliente conectado:',
-      client.id,
+      '[SOCKET] TV conectada:',
+      {
+        socketId:
+          client.id,
+
+        deviceId:
+          device?.id,
+
+        code:
+          device?.code,
+      },
     );
   }
 
   handleDisconnect(
-    client: Socket,
+    client:
+      Socket,
   ) {
     console.log(
-      '[SOCKET] Cliente desconectado:',
+      '[SOCKET] TV desconectada:',
       client.id,
     );
   }
 
-  @SubscribeMessage(
-    'device:subscribe',
-  )
-  async subscribeDevice(
-    @MessageBody()
-    payload:
-      SubscribeDevicePayload,
-
-    @ConnectedSocket()
-    client: Socket,
-  ) {
-    const code =
-      payload?.code
-        ?.trim()
-        .toUpperCase();
-
-    if (!code) {
-      return {
-        success:
-          false,
-
-        message:
-          'Código do dispositivo não informado.',
-      };
-    }
-
-    const device =
-      await this.prisma.device.findUnique({
-        where: {
-          code,
-        },
-
-        select: {
-          id: true,
-          code: true,
-          isLinked: true,
-        },
-      });
-
-    if (!device) {
-      return {
-        success:
-          false,
-
-        message:
-          'Dispositivo não encontrado.',
-      };
-    }
-
-    if (!device.isLinked) {
-      return {
-        success:
-          false,
-
-        message:
-          'Dispositivo ainda não está vinculado.',
-      };
-    }
-
-    const previousRoom =
-      client.data.deviceRoom as
-        | string
-        | undefined;
-
-    if (previousRoom) {
-      await client.leave(
-        previousRoom,
-      );
-    }
-
-    const room =
-      this.getDeviceRoom(
-        device.id,
-      );
-
-    await client.join(
-      room,
-    );
-
-    client.data.deviceId =
-      device.id;
-
-    client.data.deviceRoom =
-      room;
-
-    console.log(
-      `[SOCKET] Dispositivo ${device.code} inscrito em ${room}`,
-    );
-
-    return {
-      success:
-        true,
-
-      deviceId:
-        device.id,
-    };
-  }
-
   notifyProgrammingChanged(
-    deviceId: string,
+    deviceId:
+      string,
+
     reason:
       ProgrammingChangeReason,
+
     entityId?:
       string,
   ) {
     if (!this.server) {
-      console.log(
-        '[SOCKET] Gateway ainda não inicializado.',
-      );
-
       return;
     }
 
@@ -198,13 +157,10 @@ export class DevicesGateway
         'programming:changed',
         {
           deviceId,
-
           reason,
-
           entityId:
             entityId ??
             null,
-
           emittedAt:
             new Date()
               .toISOString(),
@@ -212,8 +168,55 @@ export class DevicesGateway
       );
   }
 
+  notifyDeviceUnlinked(
+    deviceId:
+      string,
+
+    reason:
+      DeviceSessionEndReason,
+
+    keepCode:
+      boolean,
+  ) {
+    if (!this.server) {
+      return;
+    }
+
+    const room =
+      this.getDeviceRoom(
+        deviceId,
+      );
+
+    this.server
+      .to(room)
+      .emit(
+        'device:unlinked',
+        {
+          deviceId,
+          reason,
+          keepCode,
+          emittedAt:
+            new Date()
+              .toISOString(),
+        },
+      );
+
+    setTimeout(
+      () => {
+        this.server
+          .in(room)
+          .disconnectSockets(
+            true,
+          );
+      },
+      150,
+    );
+  }
+
   async notifyPlaylistChanged(
-    playlistId: string,
+    playlistId:
+      string,
+
     reason:
       ProgrammingChangeReason =
         'PLAYLIST_UPDATED',
@@ -223,7 +226,6 @@ export class DevicesGateway
         await this.prisma.schedule.findMany({
           where: {
             playlistId,
-
             active:
               true,
           },
@@ -256,8 +258,63 @@ export class DevicesGateway
     }
   }
 
+  private async authenticateSocket(
+    socket:
+      Socket,
+  ) {
+    const authToken =
+      typeof socket.handshake
+        .auth?.token ===
+        'string'
+        ? socket.handshake
+            .auth.token
+        : null;
+
+    const authorizationHeader =
+      typeof socket.handshake
+        .headers
+        .authorization ===
+        'string'
+        ? socket.handshake
+            .headers
+            .authorization
+        : undefined;
+
+    const bearerToken =
+      this.deviceAuthService
+        .extractBearerToken(
+          authorizationHeader,
+        );
+
+    const device =
+      await this.deviceAuthService
+        .validateDeviceToken(
+          authToken ??
+          bearerToken,
+        );
+
+    socket.data.device =
+      device;
+
+    socket.data.deviceId =
+      device.id;
+
+    const room =
+      this.getDeviceRoom(
+        device.id,
+      );
+
+    socket.data.deviceRoom =
+      room;
+
+    await socket.join(
+      room,
+    );
+  }
+
   private getDeviceRoom(
-    deviceId: string,
+    deviceId:
+      string,
   ) {
     return `device:${deviceId}`;
   }

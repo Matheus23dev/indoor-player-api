@@ -2,10 +2,9 @@ import {
   IsNotEmpty,
   IsString,
   Length,
-  MaxLength,
 } from 'class-validator';
 
-export class PairDeviceDto {
+export class ActivateDeviceDto {
   @IsString()
   @IsNotEmpty()
   @Length(6, 6)
@@ -13,6 +12,5 @@ export class PairDeviceDto {
 
   @IsString()
   @IsNotEmpty()
-  @MaxLength(120)
-  name!: string;
+  activationSecret!: string;
 }
