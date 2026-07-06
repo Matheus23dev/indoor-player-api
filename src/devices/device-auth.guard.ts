@@ -10,7 +10,7 @@ import type {
 
 import {
   DeviceAuthService,
-} from '../../../../Downloads/indoor-player-api-token-completa/indoor-player-api-token-completa/src/devices/device-auth.service';
+} from './device-auth.service';
 
 import type {
   AuthenticatedDevice,
