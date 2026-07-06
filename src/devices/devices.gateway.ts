@@ -31,15 +31,13 @@ export type ProgrammingChangeReason =
   | 'PLAYLIST_REORDERED'
   | 'PLAYLIST_DELETED';
 
-export type DeviceSessionEndReason =
-  | 'UNLINKED'
-  | 'DELETED';
-
 @WebSocketGateway({
-  namespace: '/devices',
+  namespace:
+    '/devices',
 
   cors: {
-    origin: '*',
+    origin:
+      '*',
   },
 
   transports: [
@@ -55,7 +53,8 @@ export class DevicesGateway
   private server!: Server;
 
   constructor(
-    private readonly prisma: PrismaService,
+    private readonly prisma:
+      PrismaService,
   ) {}
 
   handleConnection(
@@ -76,10 +75,13 @@ export class DevicesGateway
     );
   }
 
-  @SubscribeMessage('device:subscribe')
+  @SubscribeMessage(
+    'device:subscribe',
+  )
   async subscribeDevice(
     @MessageBody()
-    payload: SubscribeDevicePayload,
+    payload:
+      SubscribeDevicePayload,
 
     @ConnectedSocket()
     client: Socket,
@@ -91,9 +93,11 @@ export class DevicesGateway
 
     if (!code) {
       return {
-        success: false,
-        reason: 'INVALID_CODE',
-        message: 'Código do dispositivo não informado.',
+        success:
+          false,
+
+        message:
+          'Código do dispositivo não informado.',
       };
     }
 
@@ -112,17 +116,21 @@ export class DevicesGateway
 
     if (!device) {
       return {
-        success: false,
-        reason: 'NOT_FOUND',
-        message: 'Dispositivo não encontrado.',
+        success:
+          false,
+
+        message:
+          'Dispositivo não encontrado.',
       };
     }
 
     if (!device.isLinked) {
       return {
-        success: false,
-        reason: 'NOT_LINKED',
-        message: 'Dispositivo ainda não está vinculado.',
+        success:
+          false,
+
+        message:
+          'Dispositivo ainda não está vinculado.',
       };
     }
 
@@ -132,13 +140,19 @@ export class DevicesGateway
         | undefined;
 
     if (previousRoom) {
-      await client.leave(previousRoom);
+      await client.leave(
+        previousRoom,
+      );
     }
 
     const room =
-      this.getDeviceRoom(device.id);
+      this.getDeviceRoom(
+        device.id,
+      );
 
-    await client.join(room);
+    await client.join(
+      room,
+    );
 
     client.data.deviceId =
       device.id;
@@ -151,70 +165,72 @@ export class DevicesGateway
     );
 
     return {
-      success: true,
-      deviceId: device.id,
+      success:
+        true,
+
+      deviceId:
+        device.id,
     };
   }
 
   notifyProgrammingChanged(
     deviceId: string,
-    reason: ProgrammingChangeReason,
-    entityId?: string,
+    reason:
+      ProgrammingChangeReason,
+    entityId?:
+      string,
   ) {
     if (!this.server) {
+      console.log(
+        '[SOCKET] Gateway ainda não inicializado.',
+      );
+
       return;
     }
 
     this.server
-      .to(this.getDeviceRoom(deviceId))
+      .to(
+        this.getDeviceRoom(
+          deviceId,
+        ),
+      )
       .emit(
         'programming:changed',
         {
           deviceId,
-          reason,
-          entityId: entityId ?? null,
-          emittedAt: new Date().toISOString(),
-        },
-      );
-  }
 
-  notifyDeviceUnlinked(
-    deviceId: string,
-    reason: DeviceSessionEndReason,
-    keepCode: boolean,
-  ) {
-    if (!this.server) {
-      return;
-    }
-
-    this.server
-      .to(this.getDeviceRoom(deviceId))
-      .emit(
-        'device:unlinked',
-        {
-          deviceId,
           reason,
-          keepCode,
-          emittedAt: new Date().toISOString(),
+
+          entityId:
+            entityId ??
+            null,
+
+          emittedAt:
+            new Date()
+              .toISOString(),
         },
       );
   }
 
   async notifyPlaylistChanged(
     playlistId: string,
-    reason: ProgrammingChangeReason =
-      'PLAYLIST_UPDATED',
+    reason:
+      ProgrammingChangeReason =
+        'PLAYLIST_UPDATED',
   ) {
     try {
       const schedules =
         await this.prisma.schedule.findMany({
           where: {
             playlistId,
-            active: true,
+
+            active:
+              true,
           },
 
           select: {
-            deviceId: true,
+            deviceId:
+              true,
           },
 
           distinct: [
@@ -222,7 +238,10 @@ export class DevicesGateway
           ],
         });
 
-      for (const schedule of schedules) {
+      for (
+        const schedule
+        of schedules
+      ) {
         this.notifyProgrammingChanged(
           schedule.deviceId,
           reason,

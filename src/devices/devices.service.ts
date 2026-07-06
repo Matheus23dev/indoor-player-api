@@ -15,7 +15,6 @@ import { DeviceStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 
 import { HeartbeatDto } from './dto/heartbeat.dto';
-import { DevicesGateway } from './devices.gateway';
 
 const ONLINE_TIMEOUT_MS = 60_000;
 
@@ -157,10 +156,7 @@ interface ScheduleRule {
 
 @Injectable()
 export class DevicesService {
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly devicesGateway: DevicesGateway,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   async registerDevice() {
     for (let attempt = 0; attempt < 10; attempt += 1) {
@@ -476,6 +472,7 @@ export class DevicesService {
           'Dispositivo não possui uma empresa vinculada.',
         );
       }
+
       const serverNow = new Date();
 
       const windowStart = this.getLocalDateTime(serverNow);
@@ -636,172 +633,6 @@ export class DevicesService {
 
       throw new InternalServerErrorException(
         'Erro ao buscar programação do dispositivo.',
-      );
-    }
-  }
-
-
-  async unlinkDevice(
-    deviceId: string,
-    companyId: string,
-  ) {
-    try {
-      const device =
-        await this.prisma.device.findFirst({
-          where: {
-            id: deviceId,
-            companyId,
-          },
-
-          select: {
-            id: true,
-            code: true,
-            name: true,
-          },
-        });
-
-      if (!device) {
-        throw new NotFoundException(
-          'Dispositivo não encontrado ou não pertence a esta conta.',
-        );
-      }
-
-      await this.prisma.$transaction(async (transaction) => {
-        await transaction.schedule.deleteMany({
-          where: {
-            deviceId: device.id,
-          },
-        });
-
-        await transaction.device.update({
-          where: {
-            id: device.id,
-          },
-
-          data: {
-            name: null,
-            companyId: null,
-            isLinked: false,
-            status: DeviceStatus.OFFLINE,
-            lastHeartbeat: null,
-
-            currentPlaylistId: null,
-
-            currentPlaylistItemId: null,
-
-            currentMediaId: null,
-
-            currentMediaTime: null,
-            currentMediaDuration: null,
-            currentMediaStartedAt: null,
-            playbackUpdatedAt: null,
-          },
-        });
-
-        await transaction.deviceLog.create({
-          data: {
-            deviceId: device.id,
-            message: 'Dispositivo desvinculado da empresa.',
-          },
-        });
-      });
-
-      this.devicesGateway.notifyDeviceUnlinked(
-        device.id,
-        'UNLINKED',
-        true,
-      );
-
-      return {
-        success: true,
-        deviceId: device.id,
-        code: device.code,
-        keepCode: true,
-      };
-    } catch (error) {
-      if (error instanceof HttpException) {
-        throw error;
-      }
-
-      console.error(
-        '[DEVICES] Erro ao desvincular dispositivo:',
-        error,
-      );
-
-      throw new InternalServerErrorException(
-        'Erro ao desvincular dispositivo.',
-      );
-    }
-  }
-
-  async deleteDevice(
-    deviceId: string,
-    companyId: string,
-  ) {
-    try {
-      const device =
-        await this.prisma.device.findFirst({
-          where: {
-            id: deviceId,
-            companyId,
-          },
-
-          select: {
-            id: true,
-            code: true,
-          },
-        });
-
-      if (!device) {
-        throw new NotFoundException(
-          'Dispositivo não encontrado ou não pertence a esta conta.',
-        );
-      }
-
-      await this.prisma.$transaction(async (transaction) => {
-        await transaction.schedule.deleteMany({
-          where: {
-            deviceId: device.id,
-          },
-        });
-
-        await transaction.deviceLog.deleteMany({
-          where: {
-            deviceId: device.id,
-          },
-        });
-
-        await transaction.device.delete({
-          where: {
-            id: device.id,
-          },
-        });
-      });
-
-      this.devicesGateway.notifyDeviceUnlinked(
-        device.id,
-        'DELETED',
-        false,
-      );
-
-      return {
-        success: true,
-        deviceId: device.id,
-        code: device.code,
-        keepCode: false,
-      };
-    } catch (error) {
-      if (error instanceof HttpException) {
-        throw error;
-      }
-
-      console.error(
-        '[DEVICES] Erro ao excluir dispositivo:',
-        error,
-      );
-
-      throw new InternalServerErrorException(
-        'Erro ao excluir dispositivo.',
       );
     }
   }
@@ -1355,18 +1186,9 @@ export class DevicesService {
   }
 
   private parseDaysOfWeek(value: string) {
-    if (!value) {
-      return [];
-    }
-
-    const normalized = value
-      .replace(/\[/g, '')
-      .replace(/\]/g, '')
-      .replace(/"/g, '');
-
     return [
       ...new Set(
-        normalized
+        value
           .split(',')
           .map((day) => Number(day.trim()))
           .filter((day) => Number.isInteger(day) && day >= 0 && day <= 6),
