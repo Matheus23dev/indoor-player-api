@@ -46,6 +46,12 @@ model Device {
   lastHeartbeat DateTime?
   updatedAt     DateTime     @updatedAt
 
+  // Autenticação segura do TV Box
+  activationSecretHash String?   @db.VarChar(64)
+  deviceTokenHash      String?   @unique @db.VarChar(64)
+  deviceTokenCreatedAt DateTime?
+  deviceTokenRevokedAt DateTime?
+
   // Estado atual da reprodução
   currentPlaylistId     String?
   currentPlaylistItemId String?
@@ -69,6 +75,7 @@ model Device {
   @@index([currentPlaylistItemId])
   @@index([currentMediaId])
   @@index([playbackUpdatedAt])
+  @@index([deviceTokenRevokedAt])
 }
 
 model DeviceLog {
