@@ -31,19 +31,15 @@ interface AuthenticatedRequest extends Request {
 }
 
 const uploadsDirectory = path.resolve(
-  process.cwd(),
-  'uploads',
+  '/var/www/files/indoor-player-api',
 );
 
 const maxUploadSizeBytes =
-  Number(process.env.MAX_UPLOAD_SIZE_BYTES) ||
   500 * 1024 * 1024;
 
 fs.ensureDirSync(uploadsDirectory);
 
-function sanitizeFileName(
-  originalName: string,
-) {
+function sanitizeFileName(originalName: string) {
   const extension = path
     .extname(originalName)
     .toLowerCase();
@@ -81,14 +77,13 @@ export class MediasController {
           file,
           callback,
         ) => {
-          const {
-            extension,
-            name,
-          } = sanitizeFileName(
-            file.originalname,
-          );
+          const { extension, name } =
+            sanitizeFileName(
+              file.originalname,
+            );
 
-          const fileName = `${Date.now()}-${randomUUID()}-${name}${extension}`;
+          const fileName =
+            `${Date.now()}-${randomUUID()}-${name}${extension}`;
 
           callback(null, fileName);
         },

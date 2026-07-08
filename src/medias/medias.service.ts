@@ -6,14 +6,25 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { MediaType, Prisma } from '@prisma/client';
+
 import { execFile } from 'child_process';
 import { promisify } from 'util';
+
 import * as fs from 'fs-extra';
 import * as path from 'path';
+
 import { PrismaService } from '../prisma/prisma.service';
 
 const execFileAsync = promisify(execFile);
-const ffprobePath = require('ffprobe-static').path as string;
+
+const uploadsDirectory = path.resolve(
+  '/var/www/files/indoor-player-api',
+);
+
+const ffprobePath =
+  require('ffprobe-static').path as string;
+
+fs.ensureDirSync(uploadsDirectory);
 
 @Injectable()
 export class MediasService {
@@ -26,7 +37,8 @@ export class MediasService {
     companyId: string,
     folderId?: string,
   ) {
-    const filePath = this.getUploadedFilePath(file);
+    const filePath =
+      this.getUploadedFilePath(file);
 
     try {
       if (!file) {
@@ -35,9 +47,10 @@ export class MediasService {
         );
       }
 
-      const mediaType = this.getMediaType(
-        file.mimetype,
-      );
+      const mediaType =
+        this.getMediaType(
+          file.mimetype,
+        );
 
       if (folderId) {
         await this.validateFolder(
@@ -48,14 +61,16 @@ export class MediasService {
 
       const duration =
         mediaType === MediaType.VIDEO
-          ? await this.getVideoDuration(filePath)
+          ? await this.getVideoDuration(
+              filePath,
+            )
           : null;
 
       return await this.prisma.media.create({
         data: {
           name: file.originalname,
           type: mediaType,
-          fileUrl: `/uploads/${file.filename}`,
+          fileUrl:  `/uploads/${file.filename}`,
           fileSize: file.size,
           duration,
           companyId,
@@ -126,22 +141,23 @@ export class MediasService {
     companyId: string,
   ) {
     try {
-      const media = await this.prisma.media.findFirst({
-        where: {
-          id,
-          companyId,
-        },
+      const media =
+        await this.prisma.media.findFirst({
+          where: {
+            id,
+            companyId,
+          },
 
-        include: {
-          playlistItems: {
-            select: {
-              id: true,
-              playlistId: true,
-              order: true,
+          include: {
+            playlistItems: {
+              select: {
+                id: true,
+                playlistId: true,
+                order: true,
+              },
             },
           },
-        },
-      });
+        });
 
       if (!media) {
         throw new NotFoundException(
@@ -152,7 +168,8 @@ export class MediasService {
       const affectedPlaylistIds = [
         ...new Set(
           media.playlistItems.map(
-            item => item.playlistId,
+            item =>
+              item.playlistId,
           ),
         ),
       ];
@@ -268,22 +285,29 @@ export class MediasService {
     filePath: string,
   ) {
     try {
-      const { stdout } = await execFileAsync(
-        ffprobePath,
-        [
-          '-v',
-          'error',
-          '-show_entries',
-          'format=duration',
-          '-of',
-          'default=noprint_wrappers=1:nokey=1',
-          filePath,
-        ],
-        {
-          timeout: 60_000,
-          maxBuffer: 1024 * 1024,
-        },
-      );
+      const { stdout } =
+        await execFileAsync(
+          ffprobePath,
+          [
+            '-v',
+            'error',
+
+            '-show_entries',
+            'format=duration',
+
+            '-of',
+            'default=noprint_wrappers=1:nokey=1',
+
+            filePath,
+          ],
+          {
+            timeout:
+              60_000,
+
+            maxBuffer:
+              1024 * 1024,
+          },
+        );
 
       const duration =
         Number.parseFloat(
@@ -316,19 +340,20 @@ export class MediasService {
     tx: Prisma.TransactionClient,
     playlistId: string,
   ) {
-    const items = await tx.playlistItem.findMany({
-      where: {
-        playlistId,
-      },
+    const items =
+      await tx.playlistItem.findMany({
+        where: {
+          playlistId,
+        },
 
-      orderBy: {
-        order: 'asc',
-      },
+        orderBy: {
+          order: 'asc',
+        },
 
-      select: {
-        id: true,
-      },
-    });
+        select: {
+          id: true,
+        },
+      });
 
     for (
       let index = 0;
@@ -341,7 +366,8 @@ export class MediasService {
         },
 
         data: {
-          order: -(index + 1),
+          order:
+            -(index + 1),
         },
       });
     }
@@ -357,7 +383,8 @@ export class MediasService {
         },
 
         data: {
-          order: index + 1,
+          order:
+            index + 1,
         },
       });
     }
@@ -371,12 +398,13 @@ export class MediasService {
     }
 
     if (file.path) {
-      return path.resolve(file.path);
+      return path.resolve(
+        file.path,
+      );
     }
 
     return path.resolve(
-      process.cwd(),
-      'uploads',
+      uploadsDirectory,
       file.filename,
     );
   }
@@ -384,15 +412,12 @@ export class MediasService {
   private getPathFromFileUrl(
     fileUrl: string,
   ) {
-    const normalizedFileUrl =
-      fileUrl.replace(
-        /^[/\\]+/,
-        '',
-      );
+    const fileName =
+      path.basename(fileUrl);
 
     return path.resolve(
-      process.cwd(),
-      normalizedFileUrl,
+      uploadsDirectory,
+      fileName,
     );
   }
 
@@ -405,13 +430,17 @@ export class MediasService {
 
     try {
       const exists =
-        await fs.pathExists(filePath);
+        await fs.pathExists(
+          filePath,
+        );
 
       if (!exists) {
         return false;
       }
 
-      await fs.remove(filePath);
+      await fs.remove(
+        filePath,
+      );
 
       return true;
     } catch (error) {
