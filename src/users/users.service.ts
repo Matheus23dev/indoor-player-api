@@ -1,19 +1,6 @@
-import {
-  BadRequestException,
-  ConflictException,
-  HttpException,
-  Injectable,
-  InternalServerErrorException,
-  NotFoundException,
-} from '@nestjs/common';
-
-import {
-  Prisma,
-  UserRole,
-} from '@prisma/client';
-
+import { BadRequestException, ConflictException, HttpException, Injectable, InternalServerErrorException, NotFoundException } from '@nestjs/common';
+import { Prisma, UserRole,} from '@prisma/client';
 import * as bcrypt from 'bcrypt';
-
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateUserDto } from './dto/create-user.dto';
 
@@ -37,11 +24,6 @@ export class UsersService {
           ?.trim()
           .toLowerCase();
 
-      /*
-       * Não use trim na senha que será salva.
-       * A senha precisa ser preservada exatamente
-       * como o usuário informou.
-       */
       const password =
         data.password;
 
@@ -86,10 +68,6 @@ export class UsersService {
         );
       }
 
-      /*
-       * ADMIN cria somente OPERATOR.
-       * OWNER pode criar ADMIN ou OPERATOR.
-       */
       if (
         requesterRole ===
           UserRole.ADMIN &&

@@ -163,11 +163,6 @@ export class FoldersService {
 
       await this.prisma.$transaction(
         async tx => {
-          /*
-           * As mídias não são excluídas.
-           * Elas apenas voltam para a raiz,
-           * ficando com folderId igual a null.
-           */
           await tx.media.updateMany({
             where: {
               folderId: folder.id,

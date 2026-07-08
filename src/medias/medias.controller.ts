@@ -11,49 +11,57 @@ import {
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 
-import { Request } from 'express';
-
-import {
-  FileInterceptor,
-} from '@nestjs/platform-express';
-
-import {
-  diskStorage,
-} from 'multer';
+import type { Request } from 'express';
+import { randomUUID } from 'crypto';
+import { diskStorage } from 'multer';
 
 import * as fs from 'fs-extra';
 import * as path from 'path';
 
-import {
-  randomUUID,
-} from 'crypto';
-
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-
 import { MediasService } from './medias.service';
 
-interface AuthenticatedRequest
-  extends Request {
+interface AuthenticatedRequest extends Request {
   user: {
     id: string;
     companyId: string;
   };
 }
 
-const uploadsDirectory =
-  path.resolve(
-    process.cwd(),
-    'uploads',
-  );
-
-/*
- * Garante que a pasta exista antes
- * que o Multer tente salvar o arquivo.
- */
-fs.ensureDirSync(
-  uploadsDirectory,
+const uploadsDirectory = path.resolve(
+  process.cwd(),
+  'uploads',
 );
+
+const maxUploadSizeBytes =
+  Number(process.env.MAX_UPLOAD_SIZE_BYTES) ||
+  500 * 1024 * 1024;
+
+fs.ensureDirSync(uploadsDirectory);
+
+function sanitizeFileName(
+  originalName: string,
+) {
+  const extension = path
+    .extname(originalName)
+    .toLowerCase();
+
+  const name = path
+    .basename(originalName, extension)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9_-]/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^[-_]+|[-_]+$/g, '')
+    .slice(0, 80);
+
+  return {
+    extension,
+    name: name || 'media',
+  };
+}
 
 @Controller('medias')
 @UseGuards(JwtAuthGuard)
@@ -62,75 +70,27 @@ export class MediasController {
     private readonly mediasService: MediasService,
   ) {}
 
-  /**
-   * Faz upload de imagem ou vídeo.
-   *
-   * POST /medias/upload
-   *
-   * Form Data:
-   * file: arquivo
-   * folderId: UUID opcional
-   */
   @Post('upload')
   @UseInterceptors(
     FileInterceptor('file', {
       storage: diskStorage({
-        destination:
-          uploadsDirectory,
+        destination: uploadsDirectory,
 
         filename: (
           _request,
           file,
           callback,
         ) => {
-          const extension =
-            path
-              .extname(
-                file.originalname,
-              )
-              .toLowerCase();
-
-          const originalName =
-            path
-              .basename(
-                file.originalname,
-                extension,
-              )
-              .normalize('NFD')
-              .replace(
-                /[\u0300-\u036f]/g,
-                '',
-              )
-              .replace(
-                /[^a-zA-Z0-9_-]/g,
-                '-',
-              )
-              .replace(
-                /-+/g,
-                '-',
-              )
-              .replace(
-                /^[-_]+|[-_]+$/g,
-                '',
-              )
-              .slice(0, 80);
-
-          const safeName =
-            originalName ||
-            'media';
-
-          const fileName =
-            [
-              Date.now(),
-              randomUUID(),
-              safeName,
-            ].join('-') +
-            extension;
-
-          callback(
-            null,
-            fileName,
+          const {
+            extension,
+            name,
+          } = sanitizeFileName(
+            file.originalname,
           );
+
+          const fileName = `${Date.now()}-${randomUUID()}-${name}${extension}`;
+
+          callback(null, fileName);
         },
       }),
 
@@ -140,19 +100,12 @@ export class MediasController {
         callback,
       ) => {
         const isImage =
-          file.mimetype.startsWith(
-            'image/',
-          );
+          file.mimetype.startsWith('image/');
 
         const isVideo =
-          file.mimetype.startsWith(
-            'video/',
-          );
+          file.mimetype.startsWith('video/');
 
-        if (
-          !isImage &&
-          !isVideo
-        ) {
+        if (!isImage && !isVideo) {
           callback(
             new BadRequestException(
               'Formato inválido. Envie apenas imagens ou vídeos.',
@@ -163,40 +116,20 @@ export class MediasController {
           return;
         }
 
-        callback(
-          null,
-          true,
-        );
+        callback(null, true);
       },
 
       limits: {
-        /*
-         * Limite padrão de 500 MB.
-         *
-         * Pode ser alterado pela variável:
-         * MAX_UPLOAD_SIZE_BYTES
-         */
-        fileSize:
-          Number(
-            process.env
-              .MAX_UPLOAD_SIZE_BYTES,
-          ) ||
-          500 *
-            1024 *
-            1024,
+        fileSize: maxUploadSizeBytes,
       },
     }),
   )
   upload(
     @UploadedFile()
-    file:
-      | Express.Multer.File
-      | undefined,
+    file: Express.Multer.File | undefined,
 
     @Body('folderId')
-    folderId:
-      | string
-      | undefined,
+    folderId: string | undefined,
 
     @Req()
     req: AuthenticatedRequest,
@@ -207,22 +140,13 @@ export class MediasController {
       );
     }
 
-    const normalizedFolderId =
-      folderId?.trim() ||
-      undefined;
-
     return this.mediasService.upload(
       file,
       req.user.companyId,
-      normalizedFolderId,
+      folderId?.trim() || undefined,
     );
   }
 
-  /**
-   * Lista as mídias da empresa.
-   *
-   * GET /medias
-   */
   @Get()
   list(
     @Req()
@@ -233,11 +157,6 @@ export class MediasController {
     );
   }
 
-  /**
-   * Exclui a mídia e o arquivo físico.
-   *
-   * DELETE /medias/:id
-   */
   @Delete(':id')
   remove(
     @Param('id')

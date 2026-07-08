@@ -11,11 +11,8 @@ import {
 } from '@nestjs/common';
 
 import { Request } from 'express';
-
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-
 import { PlaylistsService } from './playlists.service';
-
 import { CreatePlaylistDto } from './dto/create-playlist.dto';
 import { AddPlaylistItemDto } from './dto/add-playlist-item.dto';
 import { UpdatePlaylistItemDto } from './dto/update-playlist-item.dto';

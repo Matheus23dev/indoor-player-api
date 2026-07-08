@@ -1,13 +1,5 @@
-import {
-  BadRequestException,
-  HttpException,
-  Injectable,
-  InternalServerErrorException,
-  NotFoundException,
-} from '@nestjs/common';
-
+import { BadRequestException, HttpException,  Injectable, InternalServerErrorException,  NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-
 import { DevicesGateway } from '../devices/devices.gateway';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateScheduleDto } from './dto/createSchedule.dto';

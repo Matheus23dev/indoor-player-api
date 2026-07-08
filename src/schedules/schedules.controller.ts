@@ -1,21 +1,7 @@
-import {
-  Body,
-  Controller,
-  Delete,
-  Get,
-  Param,
-  Patch,
-  Post,
-  Req,
-  UseGuards,
-} from '@nestjs/common';
-
+import { Body, Controller, Delete, Get, Param, Patch, Post, Req, UseGuards } from '@nestjs/common';
 import { Request } from 'express';
-
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-
 import { SchedulesService } from './schedules.service';
-
 import { CreateScheduleDto } from './dto/createSchedule.dto';
 import { UpdateScheduleDto } from './dto/updateSchedule.dto';
 
@@ -33,11 +19,6 @@ export class SchedulesController {
     private readonly schedulesService: SchedulesService,
   ) {}
 
-  /**
-   * Cria um novo agendamento.
-   *
-   * POST /schedules
-   */
   @Post()
   create(
     @Body() createScheduleDto: CreateScheduleDto,
@@ -49,11 +30,6 @@ export class SchedulesController {
     );
   }
 
-  /**
-   * Lista os agendamentos da empresa.
-   *
-   * GET /schedules
-   */
   @Get()
   list(
     @Req() req: AuthenticatedRequest,
@@ -63,11 +39,6 @@ export class SchedulesController {
     );
   }
 
-  /**
-   * Busca um agendamento pelo ID.
-   *
-   * GET /schedules/:id
-   */
   @Get(':id')
   findOne(
     @Param('id') id: string,
@@ -79,11 +50,6 @@ export class SchedulesController {
     );
   }
 
-  /**
-   * Atualiza um agendamento.
-   *
-   * PATCH /schedules/:id
-   */
   @Patch(':id')
   update(
     @Param('id') id: string,
@@ -97,11 +63,6 @@ export class SchedulesController {
     );
   }
 
-  /**
-   * Exclui um agendamento.
-   *
-   * DELETE /schedules/:id
-   */
   @Delete(':id')
   remove(
     @Param('id') id: string,

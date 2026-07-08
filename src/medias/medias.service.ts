@@ -5,34 +5,15 @@ import {
   InternalServerErrorException,
   NotFoundException,
 } from '@nestjs/common';
-
-import {
-  MediaType,
-  Prisma,
-} from '@prisma/client';
-
-import {
-  execFile,
-} from 'child_process';
-
-import {
-  promisify,
-} from 'util';
-
+import { MediaType, Prisma } from '@prisma/client';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
 import * as fs from 'fs-extra';
 import * as path from 'path';
-
 import { PrismaService } from '../prisma/prisma.service';
 
-const execFileAsync =
-  promisify(execFile);
-
-/*
- * O pacote ffprobe-static fornece o executável
- * correto para Windows e Linux.
- */
-const ffprobePath: string =
-  require('ffprobe-static').path;
+const execFileAsync = promisify(execFile);
+const ffprobePath = require('ffprobe-static').path as string;
 
 @Injectable()
 export class MediasService {
@@ -45,8 +26,7 @@ export class MediasService {
     companyId: string,
     folderId?: string,
   ) {
-    const filePath =
-      this.getUploadedFilePath(file);
+    const filePath = this.getUploadedFilePath(file);
 
     try {
       if (!file) {
@@ -55,64 +35,31 @@ export class MediasService {
         );
       }
 
-      const mediaType =
-        this.getMediaType(
-          file.mimetype,
-        );
+      const mediaType = this.getMediaType(
+        file.mimetype,
+      );
 
       if (folderId) {
-        const folder =
-          await this.prisma.folder.findFirst({
-            where: {
-              id: folderId,
-              companyId,
-            },
-
-            select: {
-              id: true,
-            },
-          });
-
-        if (!folder) {
-          throw new NotFoundException(
-            'Pasta não encontrada ou não pertence à sua empresa.',
-          );
-        }
+        await this.validateFolder(
+          folderId,
+          companyId,
+        );
       }
 
-      let duration: number | null =
-        null;
-
-      if (
-        mediaType ===
-        MediaType.VIDEO
-      ) {
-        duration =
-          await this.getVideoDuration(
-            filePath,
-          );
-      }
+      const duration =
+        mediaType === MediaType.VIDEO
+          ? await this.getVideoDuration(filePath)
+          : null;
 
       return await this.prisma.media.create({
         data: {
-          name:
-            file.originalname,
-
-          type:
-            mediaType,
-
-          fileUrl:
-            `/uploads/${file.filename}`,
-
-          fileSize:
-            file.size,
-
+          name: file.originalname,
+          type: mediaType,
+          fileUrl: `/uploads/${file.filename}`,
+          fileSize: file.size,
           duration,
-
           companyId,
-
-          folderId:
-            folderId || null,
+          folderId: folderId || null,
         },
 
         include: {
@@ -120,18 +67,11 @@ export class MediasService {
         },
       });
     } catch (error) {
-      /*
-       * Se o cadastro falhar, remove o arquivo
-       * que o Multer já salvou no servidor.
-       */
       await this.removePhysicalFileSafely(
         filePath,
       );
 
-      if (
-        error instanceof
-        HttpException
-      ) {
+      if (error instanceof HttpException) {
         throw error;
       }
 
@@ -186,23 +126,22 @@ export class MediasService {
     companyId: string,
   ) {
     try {
-      const media =
-        await this.prisma.media.findFirst({
-          where: {
-            id,
-            companyId,
-          },
+      const media = await this.prisma.media.findFirst({
+        where: {
+          id,
+          companyId,
+        },
 
-          include: {
-            playlistItems: {
-              select: {
-                id: true,
-                playlistId: true,
-                order: true,
-              },
+        include: {
+          playlistItems: {
+            select: {
+              id: true,
+              playlistId: true,
+              order: true,
             },
           },
-        });
+        },
+      });
 
       if (!media) {
         throw new NotFoundException(
@@ -213,48 +152,32 @@ export class MediasService {
       const affectedPlaylistIds = [
         ...new Set(
           media.playlistItems.map(
-            item =>
-              item.playlistId,
+            item => item.playlistId,
           ),
         ),
       ];
 
       await this.prisma.$transaction(
         async tx => {
-          /*
-           * Remove todos os itens que utilizam
-           * essa mídia.
-           */
           await tx.playlistItem.deleteMany({
             where: {
               mediaId: media.id,
             },
           });
 
-          /*
-           * Reorganiza cada playlist afetada.
-           */
-          for (
-            const playlistId of
-            affectedPlaylistIds
-          ) {
+          for (const playlistId of affectedPlaylistIds) {
             await this.reorderPlaylistItems(
               tx,
               playlistId,
             );
 
-            /*
-             * Atualiza updatedAt para que o player
-             * detecte a mudança na playlist.
-             */
             await tx.playlist.update({
               where: {
                 id: playlistId,
               },
 
               data: {
-                updatedAt:
-                  new Date(),
+                updatedAt: new Date(),
               },
             });
           }
@@ -267,14 +190,11 @@ export class MediasService {
         },
       );
 
-      const filePath =
-        this.getPathFromFileUrl(
-          media.fileUrl,
-        );
-
       const fileRemoved =
         await this.removePhysicalFileSafely(
-          filePath,
+          this.getPathFromFileUrl(
+            media.fileUrl,
+          ),
         );
 
       return {
@@ -290,10 +210,7 @@ export class MediasService {
         fileRemoved,
       };
     } catch (error) {
-      if (
-        error instanceof
-        HttpException
-      ) {
+      if (error instanceof HttpException) {
         throw error;
       }
 
@@ -308,25 +225,37 @@ export class MediasService {
     }
   }
 
-  /**
-   * Identifica se o arquivo é imagem ou vídeo.
-   */
+  private async validateFolder(
+    folderId: string,
+    companyId: string,
+  ) {
+    const folder =
+      await this.prisma.folder.findFirst({
+        where: {
+          id: folderId,
+          companyId,
+        },
+
+        select: {
+          id: true,
+        },
+      });
+
+    if (!folder) {
+      throw new NotFoundException(
+        'Pasta não encontrada ou não pertence à sua empresa.',
+      );
+    }
+  }
+
   private getMediaType(
     mimeType: string,
   ) {
-    if (
-      mimeType.startsWith(
-        'video/',
-      )
-    ) {
+    if (mimeType.startsWith('video/')) {
       return MediaType.VIDEO;
     }
 
-    if (
-      mimeType.startsWith(
-        'image/',
-      )
-    ) {
+    if (mimeType.startsWith('image/')) {
       return MediaType.IMAGE;
     }
 
@@ -335,59 +264,42 @@ export class MediasService {
     );
   }
 
-  /**
-   * Extrai a duração real do vídeo
-   * e retorna em segundos inteiros.
-   */
   private async getVideoDuration(
     filePath: string,
   ) {
     try {
-      const {
-        stdout,
-      } =
-        await execFileAsync(
-          ffprobePath,
-          [
-            '-v',
-            'error',
+      const { stdout } = await execFileAsync(
+        ffprobePath,
+        [
+          '-v',
+          'error',
+          '-show_entries',
+          'format=duration',
+          '-of',
+          'default=noprint_wrappers=1:nokey=1',
+          filePath,
+        ],
+        {
+          timeout: 60_000,
+          maxBuffer: 1024 * 1024,
+        },
+      );
 
-            '-show_entries',
-            'format=duration',
-
-            '-of',
-            'default=noprint_wrappers=1:nokey=1',
-
-            filePath,
-          ],
-          {
-            timeout:
-              60_000,
-
-            maxBuffer:
-              1024 * 1024,
-          },
-        );
-
-      const rawDuration =
+      const duration =
         Number.parseFloat(
           stdout.trim(),
         );
 
       if (
-        !Number.isFinite(
-          rawDuration,
-        ) ||
-        rawDuration <= 0
+        !Number.isFinite(duration) ||
+        duration <= 0
       ) {
         throw new Error(
           'Duração inválida retornada pelo ffprobe.',
         );
       }
 
-      return Math.ceil(
-        rawDuration,
-      );
+      return Math.ceil(duration);
     } catch (error) {
       console.error(
         '[MEDIAS] Erro ao identificar duração:',
@@ -400,65 +312,52 @@ export class MediasService {
     }
   }
 
-  /**
-   * Reorganiza as posições sem entrar em conflito
-   * com @@unique([playlistId, order]).
-   */
   private async reorderPlaylistItems(
     tx: Prisma.TransactionClient,
     playlistId: string,
   ) {
-    const remainingItems =
-      await tx.playlistItem.findMany({
-        where: {
-          playlistId,
-        },
+    const items = await tx.playlistItem.findMany({
+      where: {
+        playlistId,
+      },
 
-        orderBy: {
-          order: 'asc',
-        },
+      orderBy: {
+        order: 'asc',
+      },
 
-        select: {
-          id: true,
-        },
-      });
+      select: {
+        id: true,
+      },
+    });
 
-    /*
-     * Primeiro usa posições negativas temporárias.
-     */
     for (
       let index = 0;
-      index < remainingItems.length;
+      index < items.length;
       index += 1
     ) {
       await tx.playlistItem.update({
         where: {
-          id: remainingItems[index].id,
+          id: items[index].id,
         },
 
         data: {
-          order:
-            -(index + 1),
+          order: -(index + 1),
         },
       });
     }
 
-    /*
-     * Depois aplica as posições definitivas.
-     */
     for (
       let index = 0;
-      index < remainingItems.length;
+      index < items.length;
       index += 1
     ) {
       await tx.playlistItem.update({
         where: {
-          id: remainingItems[index].id,
+          id: items[index].id,
         },
 
         data: {
-          order:
-            index + 1,
+          order: index + 1,
         },
       });
     }
@@ -472,9 +371,7 @@ export class MediasService {
     }
 
     if (file.path) {
-      return path.resolve(
-        file.path,
-      );
+      return path.resolve(file.path);
     }
 
     return path.resolve(
@@ -499,11 +396,6 @@ export class MediasService {
     );
   }
 
-  /**
-   * Retorna true quando o arquivo foi removido.
-   * Retorna false quando ele não existia ou houve
-   * erro isolado durante a limpeza.
-   */
   private async removePhysicalFileSafely(
     filePath: string,
   ) {
@@ -513,17 +405,13 @@ export class MediasService {
 
     try {
       const exists =
-        await fs.pathExists(
-          filePath,
-        );
+        await fs.pathExists(filePath);
 
       if (!exists) {
         return false;
       }
 
-      await fs.remove(
-        filePath,
-      );
+      await fs.remove(filePath);
 
       return true;
     } catch (error) {
