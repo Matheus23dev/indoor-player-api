@@ -70,7 +70,7 @@ export class MediasService {
         data: {
           name: file.originalname,
           type: mediaType,
-          fileUrl:  `/uploads/${file.filename}`,
+          fileUrl:  `${file.filename}`,
           fileSize: file.size,
           duration,
           companyId,
