@@ -57,16 +57,32 @@ interface AuthenticatedRequest
   JwtAuthGuard,
   RolesGuard,
 )
-@Roles(
-  UserRole.OWNER,
-  UserRole.ADMIN,
-)
 export class UsersController {
   constructor(
     private readonly usersService: UsersService,
   ) {}
 
+  @Get('me')
+  @Roles(
+    UserRole.OWNER,
+    UserRole.ADMIN,
+    UserRole.OPERATOR,
+  )
+  getMe(
+    @Req()
+    req: AuthenticatedRequest,
+  ) {
+    return this.usersService.findById(
+      req.user.id,
+      req.user.companyId,
+    );
+  }
+
   @Post()
+  @Roles(
+    UserRole.OWNER,
+    UserRole.ADMIN,
+  )
   create(
     @Body()
     createUserDto: CreateUserDto,
@@ -82,6 +98,10 @@ export class UsersController {
   }
 
   @Get()
+  @Roles(
+    UserRole.OWNER,
+    UserRole.ADMIN,
+  )
   list(
     @Req()
     req: AuthenticatedRequest,
@@ -92,6 +112,10 @@ export class UsersController {
   }
 
   @Get(':id')
+  @Roles(
+    UserRole.OWNER,
+    UserRole.ADMIN,
+  )
   findById(
     @Param(
       'id',
@@ -111,6 +135,10 @@ export class UsersController {
   }
 
   @Patch(':id')
+  @Roles(
+    UserRole.OWNER,
+    UserRole.ADMIN,
+  )
   update(
     @Param(
       'id',
@@ -136,6 +164,10 @@ export class UsersController {
   }
 
   @Delete(':id')
+  @Roles(
+    UserRole.OWNER,
+    UserRole.ADMIN,
+  )
   remove(
     @Param(
       'id',
