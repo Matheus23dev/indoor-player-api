@@ -1,196 +1,197 @@
-generator client {
-  provider = "prisma-client-js"
-}
+  generator client {
+    provider = "prisma-client-js"
+  }
 
-datasource db {
-  provider = "mysql"
-  url      = env("DATABASE_URL")
-}
+  datasource db {
+    provider = "mysql"
+    url      = env("DATABASE_URL")
+  }
 
-model Company {
-  id        String     @id @default(uuid())
-  name      String
-  createdAt DateTime   @default(now())
-  slug      String     @unique
-  updatedAt DateTime   @updatedAt
-  devices   Device[]
-  folders   Folder[]
-  medias    Media[]
-  playlists Playlist[]
-  schedules Schedule[]
-  users     User[]
-}
+  model Company {
+    id        String     @id @default(uuid())
+    name      String
+    createdAt DateTime   @default(now())
+    slug      String     @unique
+    updatedAt DateTime   @updatedAt
+    devices   Device[]
+    folders   Folder[]
+    medias    Media[]
+    playlists Playlist[]
+    schedules Schedule[]
+    users     User[]
+  }
 
-model User {
-  id        String   @id @default(uuid())
-  name      String
-  email     String   @unique
-  password  String
-  companyId String
-  createdAt DateTime @default(now())
-  role      UserRole @default(ADMIN)
-  updatedAt DateTime @updatedAt
-  company   Company  @relation(fields: [companyId], references: [id])
+  model User {
+    id        String   @id @default(uuid())
+    name      String
+    email     String   @unique
+    password  String
+    companyId String
+    createdAt DateTime @default(now())
+    role      UserRole @default(ADMIN)
+    updatedAt DateTime @updatedAt
+    company   Company  @relation(fields: [companyId], references: [id])
 
-  @@index([companyId])
-}
+    @@index([companyId])
+  }
 
-model Device {
-  id            String       @id @default(uuid())
-  name          String?
-  code          String       @unique
-  isLinked      Boolean      @default(false)
-  companyId     String?
-  createdAt     DateTime     @default(now())
-  status        DeviceStatus @default(OFFLINE)
-  lastHeartbeat DateTime?
-  updatedAt     DateTime     @updatedAt
+  model Device {
+    id            String       @id @default(uuid())
+    name          String?
+    code          String       @unique
+    isLinked      Boolean      @default(false)
+    companyId     String?
+    createdAt     DateTime     @default(now())
+    status        DeviceStatus @default(OFFLINE)
+    lastHeartbeat DateTime?
+    updatedAt     DateTime     @updatedAt
 
-  activationSecretHash String?   @db.VarChar(64)
-  deviceTokenHash      String?   @unique @db.VarChar(64)
-  deviceTokenCreatedAt DateTime?
-  deviceTokenRevokedAt DateTime?
+    activationSecretHash String?   @db.VarChar(64)
+    deviceTokenHash      String?   @unique @db.VarChar(64)
+    deviceTokenCreatedAt DateTime?
+    deviceTokenRevokedAt DateTime?
 
-  currentPlaylistId     String?
-  currentPlaylistItemId String?
-  currentMediaId        String?
-  currentMediaTime      Int?
-  currentMediaDuration  Int?
-  currentMediaStartedAt DateTime?
-  playbackUpdatedAt     DateTime?
+    currentPlaylistId     String?
+    currentPlaylistItemId String?
+    currentMediaId        String?
+    currentMediaTime      Int?
+    currentMediaDuration  Int?
+    currentMediaStartedAt DateTime?
+    playbackUpdatedAt     DateTime?
 
-  company             Company?      @relation(fields: [companyId], references: [id])
-  currentPlaylist     Playlist?     @relation("DeviceCurrentPlaylist", fields: [currentPlaylistId], references: [id], onDelete: SetNull)
-  currentPlaylistItem PlaylistItem? @relation("DeviceCurrentPlaylistItem", fields: [currentPlaylistItemId], references: [id], onDelete: SetNull)
-  currentMedia        Media?        @relation("DeviceCurrentMedia", fields: [currentMediaId], references: [id], onDelete: SetNull)
+    company             Company?      @relation(fields: [companyId], references: [id])
+    currentPlaylist     Playlist?     @relation("DeviceCurrentPlaylist", fields: [currentPlaylistId], references: [id], onDelete: SetNull)
+    currentPlaylistItem PlaylistItem? @relation("DeviceCurrentPlaylistItem", fields: [currentPlaylistItemId], references: [id], onDelete: SetNull)
+    currentMedia        Media?        @relation("DeviceCurrentMedia", fields: [currentMediaId], references: [id], onDelete: SetNull)
 
-  logs      DeviceLog[]
-  schedules Schedule[]
+    logs      DeviceLog[]
+    schedules Schedule[]
 
-  @@index([companyId])
-  @@index([lastHeartbeat])
-  @@index([currentPlaylistId])
-  @@index([currentPlaylistItemId])
-  @@index([currentMediaId])
-  @@index([playbackUpdatedAt])
-  @@index([deviceTokenRevokedAt])
-}
+    @@index([companyId])
+    @@index([lastHeartbeat])
+    @@index([currentPlaylistId])
+    @@index([currentPlaylistItemId])
+    @@index([currentMediaId])
+    @@index([playbackUpdatedAt])
+    @@index([deviceTokenRevokedAt])
+  }
 
-model DeviceLog {
-  id        String   @id @default(uuid())
-  deviceId  String
-  message   String
-  createdAt DateTime @default(now())
-  device    Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  model DeviceLog {
+    id        String   @id @default(uuid())
+    deviceId  String
+    message   String
+    createdAt DateTime @default(now())
+    device    Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
 
-  @@index([deviceId])
-  @@index([createdAt])
-}
+    @@index([deviceId])
+    @@index([createdAt])
+  }
 
-model Media {
-  id        String    @id @default(uuid())
-  name      String
-  type      MediaType
-  fileUrl   String
-  fileSize  Int?
-  duration  Int?
-  companyId String
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  folderId  String?
+  model Media {
+    id        String    @id @default(uuid())
+    name      String
+    type      MediaType
+    fileUrl   String
+    fileSize  Int?
+    duration  Int?
+    companyId String
+    createdAt DateTime  @default(now())
+    updatedAt DateTime  @updatedAt
+    folderId  String?
 
-  company        Company        @relation(fields: [companyId], references: [id])
-  folder         Folder?        @relation(fields: [folderId], references: [id])
-  playlistItems  PlaylistItem[]
-  currentDevices Device[]       @relation("DeviceCurrentMedia")
+    company        Company        @relation(fields: [companyId], references: [id])
+    folder         Folder?        @relation(fields: [folderId], references: [id])
+    playlistItems  PlaylistItem[]
+    currentDevices Device[]       @relation("DeviceCurrentMedia")
 
-  @@index([companyId])
-  @@index([folderId])
-  @@index([type])
-}
+    @@index([companyId])
+    @@index([folderId])
+    @@index([type])
+  }
 
-model Playlist {
-  id        String   @id @default(uuid())
-  name      String
-  companyId String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  model Playlist {
+    id        String   @id @default(uuid())
+    name      String
+    companyId String
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
 
-  company        Company        @relation(fields: [companyId], references: [id])
-  items          PlaylistItem[]
-  schedules      Schedule[]
-  currentDevices Device[]       @relation("DeviceCurrentPlaylist")
+    company        Company        @relation(fields: [companyId], references: [id])
+    items          PlaylistItem[]
+    schedules      Schedule[]
+    currentDevices Device[]       @relation("DeviceCurrentPlaylist")
 
-  @@index([companyId])
-}
+    @@index([companyId])
+  }
 
-model PlaylistItem {
-  id         String   @id @default(uuid())
-  playlistId String
-  mediaId    String
-  order      Int
-  duration   Int?
-  createdAt  DateTime @default(now())
+  model PlaylistItem {
+    id         String   @id @default(uuid())
+    playlistId String
+    mediaId    String
+    order      Int
+    duration   Int?
+    muted Boolean @default(false)
+    createdAt  DateTime @default(now())
 
-  media          Media    @relation(fields: [mediaId], references: [id], onDelete: Cascade)
-  playlist       Playlist @relation(fields: [playlistId], references: [id], onDelete: Cascade)
-  currentDevices Device[] @relation("DeviceCurrentPlaylistItem")
+    media          Media    @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+    playlist       Playlist @relation(fields: [playlistId], references: [id], onDelete: Cascade)
+    currentDevices Device[] @relation("DeviceCurrentPlaylistItem")
 
-  @@unique([playlistId, order])
-  @@index([playlistId])
-  @@index([mediaId])
-}
+    @@unique([playlistId, order])
+    @@index([playlistId])
+    @@index([mediaId])
+  }
 
-model Schedule {
-  id         String   @id @default(uuid())
-  name       String
-  companyId  String
-  deviceId   String
-  playlistId String
-  startDate  DateTime
-  endDate    DateTime
-  startTime  String
-  endTime    String
-  daysOfWeek String
-  priority   Int      @default(1)
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-  active     Boolean  @default(true)
-  company    Company  @relation(fields: [companyId], references: [id])
-  device     Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
-  playlist   Playlist @relation(fields: [playlistId], references: [id], onDelete: Cascade)
+  model Schedule {
+    id         String   @id @default(uuid())
+    name       String
+    companyId  String
+    deviceId   String
+    playlistId String
+    startDate  DateTime
+    endDate    DateTime
+    startTime  String
+    endTime    String
+    daysOfWeek String
+    priority   Int      @default(1)
+    createdAt  DateTime @default(now())
+    updatedAt  DateTime @updatedAt
+    active     Boolean  @default(true)
+    company    Company  @relation(fields: [companyId], references: [id])
+    device     Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+    playlist   Playlist @relation(fields: [playlistId], references: [id], onDelete: Cascade)
 
-  @@index([companyId])
-  @@index([deviceId])
-  @@index([playlistId])
-  @@index([deviceId, active])
-  @@index([deviceId, startDate, endDate])
-}
+    @@index([companyId])
+    @@index([deviceId])
+    @@index([playlistId])
+    @@index([deviceId, active])
+    @@index([deviceId, startDate, endDate])
+  }
 
-model Folder {
-  id        String   @id @default(uuid())
-  name      String
-  companyId String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  company   Company  @relation(fields: [companyId], references: [id])
-  medias    Media[]
+  model Folder {
+    id        String   @id @default(uuid())
+    name      String
+    companyId String
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+    company   Company  @relation(fields: [companyId], references: [id])
+    medias    Media[]
 
-  @@index([companyId])
-}
+    @@index([companyId])
+  }
 
-enum UserRole {
-  OWNER
-  ADMIN
-  OPERATOR
-}
+  enum UserRole {
+    OWNER
+    ADMIN
+    OPERATOR
+  }
 
-enum MediaType {
-  IMAGE
-  VIDEO
-}
+  enum MediaType {
+    IMAGE
+    VIDEO
+  }
 
-enum DeviceStatus {
-  ONLINE
-  OFFLINE
-}
+  enum DeviceStatus {
+    ONLINE
+    OFFLINE
+  }

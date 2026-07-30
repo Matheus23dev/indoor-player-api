@@ -1,4 +1,4 @@
-import { BadRequestException, HttpException, Injectable, InternalServerErrorException, NotFoundException} from '@nestjs/common';
+import { BadRequestException, HttpException, Injectable, InternalServerErrorException, NotFoundException } from '@nestjs/common';
 import { createHash, randomInt } from 'crypto';
 import { DateTime } from 'luxon';
 import { DeviceStatus, Prisma } from '@prisma/client';
@@ -77,6 +77,7 @@ const programmingScheduleSelect = {
           id: true,
           order: true,
           duration: true,
+          muted: true,
           createdAt: true,
           media: {
             select: {
@@ -116,11 +117,9 @@ interface ProgrammingOccurrence {
   endTimestamp: number;
   priority: number;
 }
-type ScheduleDate = Date | string;
-
 interface ScheduleRule {
-  startDate: ScheduleDate;
-  endDate: ScheduleDate;
+  startDate: Date;
+  endDate: Date;
   startTime: string;
   endTime: string;
   daysOfWeek: string;
@@ -1092,6 +1091,7 @@ export class DevicesService {
         id: item.id,
         order: item.order,
         duration: item.duration,
+        muted: item.muted,
         media: {
           id: item.media.id,
           name: item.media.name,
@@ -1115,12 +1115,8 @@ export class DevicesService {
     return localDateTime;
   }
 
-  private formatDateOnly(date: ScheduleDate) {
-    if (date instanceof Date) {
-      return date.toISOString().slice(0, 10);
-    }
-
-    return String(date).slice(0, 10);
+  private formatDateOnly(date: Date) {
+    return date.toISOString().slice(0, 10);
   }
 
   private parseDaysOfWeek(value: string) {

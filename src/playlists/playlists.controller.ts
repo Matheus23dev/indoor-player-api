@@ -75,20 +75,23 @@ export class PlaylistsController {
       addPlaylistItemDto,
     );
   }
-
   @Patch('items/:id')
   updateItem(
-    @Param('id') id: string,
-    @Body() dto: UpdatePlaylistItemDto,
-    @Req() req: AuthenticatedRequest,
+    @Param('id')
+    id: string,
+  
+    @Body()
+    dto: UpdatePlaylistItemDto,
+  
+    @Req()
+    req: AuthenticatedRequest,
   ) {
     return this.playlistsService.updateItem(
       id,
-      dto.duration,
+      dto,
       req.user.companyId,
     );
   }
-
   @Patch(':id/reorder')
   reorder(
     @Param('id') playlistId: string,

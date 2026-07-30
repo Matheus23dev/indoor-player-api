@@ -13,6 +13,7 @@ import { DevicesGateway } from '../devices/devices.gateway';
 import { PrismaService } from '../prisma/prisma.service';
 import { AddPlaylistItemDto } from './dto/add-playlist-item.dto';
 import { CreatePlaylistDto } from './dto/create-playlist.dto';
+import { UpdatePlaylistItemDto } from './dto/update-playlist-item.dto';
 
 @Injectable()
 export class PlaylistsService {
@@ -463,41 +464,75 @@ export class PlaylistsService {
 
   async updateItem(
     id: string,
-    duration: number,
+    data: UpdatePlaylistItemDto,
     companyId: string,
   ) {
     try {
+      const {
+        duration,
+        muted,
+      } = data;
+  
       if (
-        !Number.isInteger(duration) ||
-        duration < 1
+        duration === undefined &&
+        muted === undefined
+      ) {
+        throw new BadRequestException(
+          'Informe a duração ou a configuração de áudio.',
+        );
+      }
+  
+      if (
+        duration !== undefined &&
+        (
+          !Number.isInteger(
+            duration,
+          ) ||
+          duration < 1
+        )
       ) {
         throw new BadRequestException(
           'A duração deve ser um número inteiro maior que zero.',
         );
       }
-
+  
       const item =
         await this.prisma.playlistItem.findFirst({
           where: {
             id,
-
+  
             playlist: {
               companyId,
             },
           },
-
+  
           select: {
             id: true,
             playlistId: true,
+  
+            media: {
+              select: {
+                type: true,
+              },
+            },
           },
         });
-
+  
       if (!item) {
         throw new NotFoundException(
           'Item não encontrado na sua playlist.',
         );
       }
-
+  
+      if (
+        muted !== undefined &&
+        item.media.type !== 'VIDEO'
+      ) {
+        throw new BadRequestException(
+          'A configuração de áudio está disponível somente para vídeos.',
+        );
+      }
+  
       const updatedItem =
         await this.prisma.$transaction(
           async tx => {
@@ -506,30 +541,41 @@ export class PlaylistsService {
                 where: {
                   id: item.id,
                 },
-
+  
                 data: {
-                  duration,
+                  ...(duration !== undefined
+                    ? {
+                        duration,
+                      }
+                    : {}),
+  
+                  ...(muted !== undefined
+                    ? {
+                        muted,
+                      }
+                    : {}),
                 },
-
+  
                 include: {
                   media: true,
                 },
               });
-
+  
             await this.touchPlaylist(
               tx,
               item.playlistId,
             );
-
+  
             return result;
           },
         );
-
-      await this.devicesGateway.notifyPlaylistChanged(
-        item.playlistId,
-        'PLAYLIST_UPDATED',
-      );
-
+  
+      await this.devicesGateway
+        .notifyPlaylistChanged(
+          item.playlistId,
+          'PLAYLIST_UPDATED',
+        );
+  
       return updatedItem;
     } catch (error) {
       this.handleError(
@@ -537,7 +583,7 @@ export class PlaylistsService {
         'Erro interno ao atualizar item da playlist.',
       );
     }
-  }
+  } 
 
   async reorder(
     playlistId: string,
