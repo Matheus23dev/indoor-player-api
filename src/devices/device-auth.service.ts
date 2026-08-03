@@ -5,291 +5,188 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 
-import {
-  createHash,
-  randomBytes,
-  timingSafeEqual,
-} from 'crypto';
+import { createHash, randomBytes, timingSafeEqual } from 'crypto';
 
-import {
-  PrismaService,
-} from '../prisma/prisma.service';
+import { PrismaService } from '../prisma/prisma.service';
 
-import type {
-  AuthenticatedDevice,
-} from './device-auth.types';
+import type { AuthenticatedDevice } from './device-auth.types';
 
 @Injectable()
 export class DeviceAuthService {
-  constructor(
-    private readonly prisma:
-      PrismaService,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   generateActivationSecret() {
-    return randomBytes(32)
-      .toString('base64url');
+    return randomBytes(32).toString('base64url');
   }
 
   generateDeviceToken() {
-    return randomBytes(48)
-      .toString('base64url');
+    return randomBytes(48).toString('base64url');
   }
 
-  hashSecret(
-    value: string,
-  ) {
-    return createHash('sha256')
-      .update(value)
-      .digest('hex');
+  hashSecret(value: string) {
+    return createHash('sha256').update(value).digest('hex');
   }
 
-  async activateDevice(
-    code: string,
-    activationSecret: string,
-  ) {
-    const normalizedCode =
-      code
-        .trim()
-        .toUpperCase();
+  async activateDevice(code: string, activationSecret: string) {
+    const normalizedCode = code.trim().toUpperCase();
 
-    const device =
-      await this.prisma.device.findUnique({
-        where: {
-          code:
-            normalizedCode,
-        },
+    const device = await this.prisma.device.findUnique({
+      where: {
+        code: normalizedCode,
+      },
 
-        select: {
-          id: true,
-          code: true,
-          name: true,
-          isLinked: true,
-          companyId: true,
-          activationSecretHash:
-            true,
-        },
-      });
+      select: {
+        id: true,
+        code: true,
+        name: true,
+        isLinked: true,
+        companyId: true,
+        activationSecretHash: true,
+      },
+    });
 
     if (!device) {
-      throw new NotFoundException(
-        'Dispositivo não encontrado.',
-      );
+      throw new NotFoundException('Dispositivo não encontrado.');
     }
 
-    if (
-      !device.activationSecretHash
-    ) {
+    if (!device.activationSecretHash) {
       throw new ConflictException(
         'Este dispositivo precisa ser registrado novamente para usar autenticação segura.',
       );
     }
 
-    const informedHash =
-      this.hashSecret(
-        activationSecret,
-      );
+    const informedHash = this.hashSecret(activationSecret);
 
-    if (
-      !this.secureCompare(
-        informedHash,
-        device.activationSecretHash,
-      )
-    ) {
-      throw new UnauthorizedException(
-        'Credencial de ativação inválida.',
-      );
+    if (!this.secureCompare(informedHash, device.activationSecretHash)) {
+      throw new UnauthorizedException('Credencial de ativação inválida.');
     }
 
-    if (
-      !device.isLinked ||
-      !device.companyId
-    ) {
+    if (!device.isLinked || !device.companyId) {
       return {
-        id:
-          device.id,
+        id: device.id,
 
-        code:
-          device.code,
+        code: device.code,
 
-        name:
-          device.name,
+        name: device.name,
 
-        isLinked:
-          false,
+        isLinked: false,
 
-        deviceToken:
-          null,
+        deviceToken: null,
       };
     }
 
-    const deviceToken =
-      this.generateDeviceToken();
+    const deviceToken = this.generateDeviceToken();
 
-    const deviceTokenHash =
-      this.hashSecret(
-        deviceToken,
-      );
+    const deviceTokenHash = this.hashSecret(deviceToken);
 
-    const now =
-      new Date();
+    const now = new Date();
 
     await this.prisma.device.update({
       where: {
-        id:
-          device.id,
+        id: device.id,
       },
 
       data: {
         deviceTokenHash,
-        deviceTokenCreatedAt:
-          now,
-        deviceTokenRevokedAt:
-          null,
+        deviceTokenCreatedAt: now,
+        deviceTokenRevokedAt: null,
       },
     });
 
     return {
-      id:
-        device.id,
+      id: device.id,
 
-      code:
-        device.code,
+      code: device.code,
 
-      name:
-        device.name,
+      name: device.name,
 
-      isLinked:
-        true,
+      isLinked: true,
 
       deviceToken,
     };
   }
 
   async validateDeviceToken(
-    rawToken:
-      string | null | undefined,
+    rawToken: string | null | undefined,
   ): Promise<AuthenticatedDevice> {
-    const token =
-      rawToken?.trim();
+    const token = rawToken?.trim();
 
     if (!token) {
-      throw new UnauthorizedException(
-        'Token do dispositivo não informado.',
-      );
+      throw new UnauthorizedException('Token do dispositivo não informado.');
     }
 
-    const tokenHash =
-      this.hashSecret(
-        token,
-      );
+    const tokenHash = this.hashSecret(token);
 
-    const device =
-      await this.prisma.device.findUnique({
-        where: {
-          deviceTokenHash:
-            tokenHash,
-        },
+    const device = await this.prisma.device.findUnique({
+      where: {
+        deviceTokenHash: tokenHash,
+      },
 
-        select: {
-          id: true,
-          code: true,
-          name: true,
-          isLinked: true,
-          companyId: true,
-          deviceTokenRevokedAt:
-            true,
-        },
-      });
+      select: {
+        id: true,
+        code: true,
+        name: true,
+        isLinked: true,
+        companyId: true,
+        deviceTokenRevokedAt: true,
+        currentPlaylistId: true,
+        currentPlaylistItemId: true,
+        currentMediaId: true,
+      },
+    });
 
-    if (
-      !device ||
-      device.deviceTokenRevokedAt
-    ) {
+    if (!device || device.deviceTokenRevokedAt) {
       throw new UnauthorizedException(
         'Token do dispositivo inválido ou revogado.',
       );
     }
 
-    if (
-      !device.isLinked ||
-      !device.companyId
-    ) {
-      throw new UnauthorizedException(
-        'Dispositivo não está vinculado.',
-      );
+    if (!device.isLinked || !device.companyId) {
+      throw new UnauthorizedException('Dispositivo não está vinculado.');
     }
 
     return {
-      id:
-        device.id,
+      id: device.id,
 
-      code:
-        device.code,
+      code: device.code,
 
-      name:
-        device.name,
+      name: device.name,
 
-      companyId:
-        device.companyId,
+      companyId: device.companyId,
 
-      isLinked:
-        true,
+      isLinked: true,
+
+      currentPlaylistId: device.currentPlaylistId,
+
+      currentPlaylistItemId: device.currentPlaylistItemId,
+
+      currentMediaId: device.currentMediaId,
     };
   }
 
-  extractBearerToken(
-    authorization:
-      string | undefined,
-  ) {
+  extractBearerToken(authorization: string | undefined) {
     if (!authorization) {
       return null;
     }
 
-    const [
-      scheme,
-      token,
-    ] = authorization
-      .trim()
-      .split(/\s+/);
+    const [scheme, token] = authorization.trim().split(/\s+/);
 
-    if (
-      scheme?.toLowerCase() !==
-        'bearer' ||
-      !token
-    ) {
+    if (scheme?.toLowerCase() !== 'bearer' || !token) {
       return null;
     }
 
     return token;
   }
 
-  private secureCompare(
-    first: string,
-    second: string,
-  ) {
-    const firstBuffer =
-      Buffer.from(
-        first,
-        'utf8',
-      );
+  private secureCompare(first: string, second: string) {
+    const firstBuffer = Buffer.from(first, 'utf8');
 
-    const secondBuffer =
-      Buffer.from(
-        second,
-        'utf8',
-      );
+    const secondBuffer = Buffer.from(second, 'utf8');
 
-    if (
-      firstBuffer.length !==
-      secondBuffer.length
-    ) {
+    if (firstBuffer.length !== secondBuffer.length) {
       return false;
     }
 
-    return timingSafeEqual(
-      firstBuffer,
-      secondBuffer,
-    );
+    return timingSafeEqual(firstBuffer, secondBuffer);
   }
 }

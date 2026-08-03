@@ -1,9 +1,4 @@
-import {
-  IsNotEmpty,
-  IsString,
-  Length,
-  MaxLength,
-} from 'class-validator';
+import { IsNotEmpty, IsString, Length, MaxLength } from 'class-validator';
 
 export class PairDeviceDto {
   @IsString()

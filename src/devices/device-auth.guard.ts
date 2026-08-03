@@ -1,62 +1,29 @@
-import {
-  CanActivate,
-  ExecutionContext,
-  Injectable,
-} from '@nestjs/common';
+import { CanActivate, ExecutionContext, Injectable } from '@nestjs/common';
 
-import type {
-  Request,
-} from 'express';
+import type { Request } from 'express';
 
-import {
-  DeviceAuthService,
-} from './device-auth.service';
+import { DeviceAuthService } from './device-auth.service';
 
-import type {
-  AuthenticatedDevice,
-} from './device-auth.types';
+import type { AuthenticatedDevice } from './device-auth.types';
 
-export interface DeviceAuthenticatedRequest
-  extends Request {
-  device:
-    AuthenticatedDevice;
+export interface DeviceAuthenticatedRequest extends Request {
+  device: AuthenticatedDevice;
 }
 
 @Injectable()
-export class DeviceAuthGuard
-  implements CanActivate
-{
-  constructor(
-    private readonly deviceAuthService:
-      DeviceAuthService,
-  ) {}
+export class DeviceAuthGuard implements CanActivate {
+  constructor(private readonly deviceAuthService: DeviceAuthService) {}
 
-  async canActivate(
-    context:
-      ExecutionContext,
-  ) {
-    const request =
-      context
-        .switchToHttp()
-        .getRequest<
-          DeviceAuthenticatedRequest
-        >();
+  async canActivate(context: ExecutionContext) {
+    const request = context
+      .switchToHttp()
+      .getRequest<DeviceAuthenticatedRequest>();
 
-    const authorization =
-      request.headers
-        .authorization;
+    const authorization = request.headers.authorization;
 
-    const token =
-      this.deviceAuthService
-        .extractBearerToken(
-          authorization,
-        );
+    const token = this.deviceAuthService.extractBearerToken(authorization);
 
-    request.device =
-      await this.deviceAuthService
-        .validateDeviceToken(
-          token,
-        );
+    request.device = await this.deviceAuthService.validateDeviceToken(token);
 
     return true;
   }

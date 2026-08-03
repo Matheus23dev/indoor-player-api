@@ -1,17 +1,11 @@
-import {
-  Body,
-  Controller,
-  Post,
-} from '@nestjs/common';
+import { Body, Controller, Post } from '@nestjs/common';
 
 import { CompaniesService } from './companies.service';
 import { RegisterCompanyDto } from './dto/companies.dto';
 
 @Controller('companies')
 export class CompaniesController {
-  constructor(
-    private readonly companiesService: CompaniesService,
-  ) {}
+  constructor(private readonly companiesService: CompaniesService) {}
 
   @Post('register')
   register(

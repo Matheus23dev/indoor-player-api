@@ -57,6 +57,7 @@
     currentMediaTime      Int?
     currentMediaDuration  Int?
     currentMediaStartedAt DateTime?
+    playbackMuted         Boolean?
     playbackUpdatedAt     DateTime?
 
     company             Company?      @relation(fields: [companyId], references: [id])
@@ -79,7 +80,7 @@
   model DeviceLog {
     id        String   @id @default(uuid())
     deviceId  String
-    message   String
+    message   String   @db.Text
     createdAt DateTime @default(now())
     device    Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
 
@@ -130,7 +131,7 @@
     mediaId    String
     order      Int
     duration   Int?
-    muted Boolean @default(false)
+    muted     Boolean  @default(false)
     createdAt  DateTime @default(now())
 
     media          Media    @relation(fields: [mediaId], references: [id], onDelete: Cascade)

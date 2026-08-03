@@ -1,4 +1,5 @@
 import {
+  IsBoolean,
   IsISO8601,
   IsNumber,
   IsOptional,
@@ -28,6 +29,10 @@ export class HeartbeatDto {
   @IsNumber()
   @Min(0)
   duration?: number | null;
+
+  @IsOptional()
+  @IsBoolean()
+  muted?: boolean | null;
 
   @IsOptional()
   @IsISO8601()

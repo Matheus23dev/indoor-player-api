@@ -11,40 +11,23 @@ import {
   UseGuards,
 } from '@nestjs/common';
 
-import {
-  Request,
-} from 'express';
+import { Request } from 'express';
 
-import {
-  UserRole,
-} from '@prisma/client';
+import { UserRole } from '@prisma/client';
 
-import {
-  UsersService,
-} from './users.service';
+import { UsersService } from './users.service';
 
-import {
-  CreateUserDto,
-} from './dto/create-user.dto';
+import { CreateUserDto } from './dto/create-user.dto';
 
-import {
-  UpdateUserDto,
-} from './dto/update-user.dto';
+import { UpdateUserDto } from './dto/update-user.dto';
 
-import {
-  JwtAuthGuard,
-} from '../auth/jwt-auth.guard';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
-import {
-  RolesGuard,
-} from '../auth/roles.guard';
+import { RolesGuard } from '../auth/roles.guard';
 
-import {
-  Roles,
-} from '../auth/decorators/roles.decorators';
+import { Roles } from '../auth/decorators/roles.decorators';
 
-interface AuthenticatedRequest
-  extends Request {
+interface AuthenticatedRequest extends Request {
   user: {
     id: string;
     companyId: string;
@@ -53,36 +36,21 @@ interface AuthenticatedRequest
 }
 
 @Controller('users')
-@UseGuards(
-  JwtAuthGuard,
-  RolesGuard,
-)
+@UseGuards(JwtAuthGuard, RolesGuard)
 export class UsersController {
-  constructor(
-    private readonly usersService: UsersService,
-  ) {}
+  constructor(private readonly usersService: UsersService) {}
 
   @Get('me')
-  @Roles(
-    UserRole.OWNER,
-    UserRole.ADMIN,
-    UserRole.OPERATOR,
-  )
+  @Roles(UserRole.OWNER, UserRole.ADMIN, UserRole.OPERATOR)
   getMe(
     @Req()
     req: AuthenticatedRequest,
   ) {
-    return this.usersService.findById(
-      req.user.id,
-      req.user.companyId,
-    );
+    return this.usersService.findById(req.user.id, req.user.companyId);
   }
 
   @Post()
-  @Roles(
-    UserRole.OWNER,
-    UserRole.ADMIN,
-  )
+  @Roles(UserRole.OWNER, UserRole.ADMIN)
   create(
     @Body()
     createUserDto: CreateUserDto,
@@ -98,24 +66,16 @@ export class UsersController {
   }
 
   @Get()
-  @Roles(
-    UserRole.OWNER,
-    UserRole.ADMIN,
-  )
+  @Roles(UserRole.OWNER, UserRole.ADMIN)
   list(
     @Req()
     req: AuthenticatedRequest,
   ) {
-    return this.usersService.list(
-      req.user.companyId,
-    );
+    return this.usersService.list(req.user.companyId);
   }
 
   @Get(':id')
-  @Roles(
-    UserRole.OWNER,
-    UserRole.ADMIN,
-  )
+  @Roles(UserRole.OWNER, UserRole.ADMIN)
   findById(
     @Param(
       'id',
@@ -128,17 +88,11 @@ export class UsersController {
     @Req()
     req: AuthenticatedRequest,
   ) {
-    return this.usersService.findById(
-      id,
-      req.user.companyId,
-    );
+    return this.usersService.findById(id, req.user.companyId);
   }
 
   @Patch(':id')
-  @Roles(
-    UserRole.OWNER,
-    UserRole.ADMIN,
-  )
+  @Roles(UserRole.OWNER, UserRole.ADMIN)
   update(
     @Param(
       'id',
@@ -164,10 +118,7 @@ export class UsersController {
   }
 
   @Delete(':id')
-  @Roles(
-    UserRole.OWNER,
-    UserRole.ADMIN,
-  )
+  @Roles(UserRole.OWNER, UserRole.ADMIN)
   remove(
     @Param(
       'id',

@@ -4,4 +4,7 @@ export interface AuthenticatedDevice {
   name: string | null;
   companyId: string;
   isLinked: true;
+  currentPlaylistId: string | null;
+  currentPlaylistItemId: string | null;
+  currentMediaId: string | null;
 }

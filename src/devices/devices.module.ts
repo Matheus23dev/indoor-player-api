@@ -1,39 +1,21 @@
-import {
-  Module,
-} from '@nestjs/common';
+import { Module } from '@nestjs/common';
 
-import {
-  PrismaModule,
-} from '../prisma/prisma.module';
+import { PrismaModule } from '../prisma/prisma.module';
 
-import {
-  DeviceAuthGuard,
-} from './device-auth.guard';
+import { DeviceAuthGuard } from './device-auth.guard';
 
-import {
-  DeviceAuthService,
-} from './device-auth.service';
+import { DeviceAuthService } from './device-auth.service';
 
-import {
-  DevicesController,
-} from './devices.controller';
+import { DevicesController } from './devices.controller';
 
-import {
-  DevicesGateway,
-} from './devices.gateway';
+import { DevicesGateway } from './devices.gateway';
 
-import {
-  DevicesService,
-} from './devices.service';
+import { DevicesService } from './devices.service';
 
 @Module({
-  imports: [
-    PrismaModule,
-  ],
+  imports: [PrismaModule],
 
-  controllers: [
-    DevicesController,
-  ],
+  controllers: [DevicesController],
 
   providers: [
     DeviceAuthService,
@@ -42,11 +24,6 @@ import {
     DevicesGateway,
   ],
 
-  exports: [
-    DeviceAuthService,
-    DeviceAuthGuard,
-    DevicesService,
-    DevicesGateway,
-  ],
+  exports: [DeviceAuthService, DeviceAuthGuard, DevicesService, DevicesGateway],
 })
 export class DevicesModule {}

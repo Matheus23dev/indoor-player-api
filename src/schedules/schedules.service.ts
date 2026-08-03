@@ -1,6 +1,17 @@
-import { BadRequestException, HttpException,  Injectable, InternalServerErrorException,  NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  HttpException,
+  Injectable,
+  InternalServerErrorException,
+  NotFoundException,
+} from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { DevicesGateway } from '../devices/devices.gateway';
+import {
+  serializeDeviceAuditEvent,
+  type DeviceAuditActor,
+  type DeviceAuditEvent,
+} from '../devices/device-audit';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateScheduleDto } from './dto/createSchedule.dto';
 import { UpdateScheduleDto } from './dto/updateSchedule.dto';
@@ -15,24 +26,24 @@ export class SchedulesService {
   async create(
     companyId: string,
     data: CreateScheduleDto,
+    actor: DeviceAuditActor,
   ) {
     try {
-      const [device, playlist] =
-        await Promise.all([
-          this.prisma.device.findFirst({
-            where: {
-              id: data.deviceId,
-              companyId,
-            },
-          }),
+      const [device, playlist] = await Promise.all([
+        this.prisma.device.findFirst({
+          where: {
+            id: data.deviceId,
+            companyId,
+          },
+        }),
 
-          this.prisma.playlist.findFirst({
-            where: {
-              id: data.playlistId,
-              companyId,
-            },
-          }),
-        ]);
+        this.prisma.playlist.findFirst({
+          where: {
+            id: data.playlistId,
+            companyId,
+          },
+        }),
+      ]);
 
       if (!device) {
         throw new NotFoundException(
@@ -55,67 +66,45 @@ export class SchedulesService {
       const name = data.name.trim();
 
       if (!name) {
-        throw new BadRequestException(
-          'O nome do agendamento é obrigatório.',
-        );
+        throw new BadRequestException('O nome do agendamento é obrigatório.');
       }
 
-      const startDate = this.parseDate(
-        data.startDate,
-        'Data inicial',
-      );
+      const startDate = this.parseDate(data.startDate, 'Data inicial');
 
-      const endDate = this.parseDate(
-        data.endDate,
-        'Data final',
-      );
+      const endDate = this.parseDate(data.endDate, 'Data final');
 
-      this.validateDateRange(
-        startDate,
-        endDate,
-      );
+      this.validateDateRange(startDate, endDate);
 
-      this.validateTime(
-        data.startTime,
-        'Horário inicial',
-      );
+      this.validateTime(data.startTime, 'Horário inicial');
 
-      this.validateTime(
-        data.endTime,
-        'Horário final',
-      );
+      this.validateTime(data.endTime, 'Horário final');
 
-      const daysOfWeek =
-        this.normalizeDaysOfWeek(
-          data.daysOfWeek,
-        );
+      const daysOfWeek = this.normalizeDaysOfWeek(data.daysOfWeek);
 
-      const priority =
-        data.priority ?? 1;
+      const priority = data.priority ?? 1;
 
       this.validatePriority(priority);
 
-      const schedule =
-        await this.prisma.schedule.create({
-          data: {
-            name,
-            companyId,
-            deviceId: data.deviceId,
-            playlistId: data.playlistId,
-            startDate,
-            endDate,
-            startTime: data.startTime,
-            endTime: data.endTime,
-            daysOfWeek,
-            priority,
-            active: data.active ?? true,
-          },
+      const schedule = await this.prisma.schedule.create({
+        data: {
+          name,
+          companyId,
+          deviceId: data.deviceId,
+          playlistId: data.playlistId,
+          startDate,
+          endDate,
+          startTime: data.startTime,
+          endTime: data.endTime,
+          daysOfWeek,
+          priority,
+          active: data.active ?? true,
+        },
 
-          include: {
-            device: true,
-            playlist: true,
-          },
-        });
+        include: {
+          device: true,
+          playlist: true,
+        },
+      });
 
       this.devicesGateway.notifyProgrammingChanged(
         schedule.deviceId,
@@ -123,16 +112,26 @@ export class SchedulesService {
         schedule.id,
       );
 
+      await this.auditDevices([schedule.deviceId], {
+        actor,
+        action: 'SCHEDULE_CREATED',
+        message: `criou o agendamento "${schedule.name}" para este Player usando a playlist "${schedule.playlist.name}".`,
+        entityType: 'SCHEDULE',
+        entityId: schedule.id,
+        metadata: {
+          scheduleName: schedule.name,
+          playlistName: schedule.playlist.name,
+          active: schedule.active,
+        },
+      });
+
       return schedule;
     } catch (error) {
       if (error instanceof HttpException) {
         throw error;
       }
 
-      console.error(
-        '[SCHEDULES] Erro ao criar:',
-        error,
-      );
+      console.error('[SCHEDULES] Erro ao criar:', error);
 
       throw new InternalServerErrorException(
         'Erro interno ao criar agendamento.',
@@ -144,30 +143,31 @@ export class SchedulesService {
     id: string,
     companyId: string,
     dto: UpdateScheduleDto,
+    actor: DeviceAuditActor,
   ) {
     try {
-      const schedule =
-        await this.prisma.schedule.findFirst({
-          where: {
-            id,
-            companyId,
-          },
-        });
+      const schedule = await this.prisma.schedule.findFirst({
+        where: {
+          id,
+          companyId,
+        },
+        include: {
+          device: true,
+          playlist: true,
+        },
+      });
 
       if (!schedule) {
-        throw new NotFoundException(
-          'Agendamento não encontrado.',
-        );
+        throw new NotFoundException('Agendamento não encontrado.');
       }
 
       if (dto.deviceId) {
-        const device =
-          await this.prisma.device.findFirst({
-            where: {
-              id: dto.deviceId,
-              companyId,
-            },
-          });
+        const device = await this.prisma.device.findFirst({
+          where: {
+            id: dto.deviceId,
+            companyId,
+          },
+        });
 
         if (!device) {
           throw new NotFoundException(
@@ -183,13 +183,12 @@ export class SchedulesService {
       }
 
       if (dto.playlistId) {
-        const playlist =
-          await this.prisma.playlist.findFirst({
-            where: {
-              id: dto.playlistId,
-              companyId,
-            },
-          });
+        const playlist = await this.prisma.playlist.findFirst({
+          where: {
+            id: dto.playlistId,
+            companyId,
+          },
+        });
 
         if (!playlist) {
           throw new NotFoundException(
@@ -199,55 +198,34 @@ export class SchedulesService {
       }
 
       const startDate = dto.startDate
-        ? this.parseDate(
-            dto.startDate,
-            'Data inicial',
-          )
+        ? this.parseDate(dto.startDate, 'Data inicial')
         : schedule.startDate;
 
       const endDate = dto.endDate
-        ? this.parseDate(
-            dto.endDate,
-            'Data final',
-          )
+        ? this.parseDate(dto.endDate, 'Data final')
         : schedule.endDate;
 
-      this.validateDateRange(
-        startDate,
-        endDate,
-      );
+      this.validateDateRange(startDate, endDate);
 
-      const startTime =
-        dto.startTime ?? schedule.startTime;
+      const startTime = dto.startTime ?? schedule.startTime;
 
-      const endTime =
-        dto.endTime ?? schedule.endTime;
+      const endTime = dto.endTime ?? schedule.endTime;
 
-      this.validateTime(
-        startTime,
-        'Horário inicial',
-      );
+      this.validateTime(startTime, 'Horário inicial');
 
-      this.validateTime(
-        endTime,
-        'Horário final',
-      );
+      this.validateTime(endTime, 'Horário final');
 
-      const priority =
-        dto.priority ?? schedule.priority;
+      const priority = dto.priority ?? schedule.priority;
 
       this.validatePriority(priority);
 
-      const updateData:
-        Prisma.ScheduleUncheckedUpdateInput = {};
+      const updateData: Prisma.ScheduleUncheckedUpdateInput = {};
 
       if (dto.name !== undefined) {
         const name = dto.name.trim();
 
         if (!name) {
-          throw new BadRequestException(
-            'O nome do agendamento é obrigatório.',
-          );
+          throw new BadRequestException('O nome do agendamento é obrigatório.');
         }
 
         updateData.name = name;
@@ -278,10 +256,7 @@ export class SchedulesService {
       }
 
       if (dto.daysOfWeek !== undefined) {
-        updateData.daysOfWeek =
-          this.normalizeDaysOfWeek(
-            dto.daysOfWeek,
-          );
+        updateData.daysOfWeek = this.normalizeDaysOfWeek(dto.daysOfWeek);
       }
 
       if (dto.priority !== undefined) {
@@ -292,19 +267,18 @@ export class SchedulesService {
         updateData.active = dto.active;
       }
 
-      const updatedSchedule =
-        await this.prisma.schedule.update({
-          where: {
-            id: schedule.id,
-          },
+      const updatedSchedule = await this.prisma.schedule.update({
+        where: {
+          id: schedule.id,
+        },
 
-          data: updateData,
+        data: updateData,
 
-          include: {
-            device: true,
-            playlist: true,
-          },
-        });
+        include: {
+          device: true,
+          playlist: true,
+        },
+      });
 
       this.devicesGateway.notifyProgrammingChanged(
         updatedSchedule.deviceId,
@@ -312,10 +286,7 @@ export class SchedulesService {
         updatedSchedule.id,
       );
 
-      if (
-        schedule.deviceId !==
-        updatedSchedule.deviceId
-      ) {
+      if (schedule.deviceId !== updatedSchedule.deviceId) {
         this.devicesGateway.notifyProgrammingChanged(
           schedule.deviceId,
           'SCHEDULE_UPDATED',
@@ -323,16 +294,15 @@ export class SchedulesService {
         );
       }
 
+      await this.auditScheduleUpdate(schedule, updatedSchedule, actor);
+
       return updatedSchedule;
     } catch (error) {
       if (error instanceof HttpException) {
         throw error;
       }
 
-      console.error(
-        '[SCHEDULES] Erro ao atualizar:',
-        error,
-      );
+      console.error('[SCHEDULES] Erro ao atualizar:', error);
 
       throw new InternalServerErrorException(
         'Erro interno ao atualizar agendamento.',
@@ -365,10 +335,7 @@ export class SchedulesService {
         ],
       });
     } catch (error) {
-      console.error(
-        '[SCHEDULES] Erro ao listar:',
-        error,
-      );
+      console.error('[SCHEDULES] Erro ao listar:', error);
 
       throw new InternalServerErrorException(
         'Erro interno ao listar agendamentos.',
@@ -376,41 +343,35 @@ export class SchedulesService {
     }
   }
 
-  async findOne(
-    id: string,
-    companyId: string,
-  ) {
+  async findOne(id: string, companyId: string) {
     try {
-      const schedule =
-        await this.prisma.schedule.findFirst({
-          where: {
-            id,
-            companyId,
-          },
+      const schedule = await this.prisma.schedule.findFirst({
+        where: {
+          id,
+          companyId,
+        },
 
-          include: {
-            device: true,
+        include: {
+          device: true,
 
-            playlist: {
-              include: {
-                items: {
-                  include: {
-                    media: true,
-                  },
+          playlist: {
+            include: {
+              items: {
+                include: {
+                  media: true,
+                },
 
-                  orderBy: {
-                    order: 'asc',
-                  },
+                orderBy: {
+                  order: 'asc',
                 },
               },
             },
           },
-        });
+        },
+      });
 
       if (!schedule) {
-        throw new NotFoundException(
-          'Agendamento não encontrado.',
-        );
+        throw new NotFoundException('Agendamento não encontrado.');
       }
 
       return schedule;
@@ -419,10 +380,7 @@ export class SchedulesService {
         throw error;
       }
 
-      console.error(
-        '[SCHEDULES] Erro ao buscar:',
-        error,
-      );
+      console.error('[SCHEDULES] Erro ao buscar:', error);
 
       throw new InternalServerErrorException(
         'Erro interno ao buscar agendamento.',
@@ -430,28 +388,28 @@ export class SchedulesService {
     }
   }
 
-  async remove(
-    id: string,
-    companyId: string,
-  ) {
+  async remove(id: string, companyId: string, actor: DeviceAuditActor) {
     try {
-      const schedule =
-        await this.prisma.schedule.findFirst({
-          where: {
-            id,
-            companyId,
-          },
+      const schedule = await this.prisma.schedule.findFirst({
+        where: {
+          id,
+          companyId,
+        },
 
-          select: {
-            id: true,
-            deviceId: true,
+        select: {
+          id: true,
+          deviceId: true,
+          name: true,
+          playlist: {
+            select: {
+              name: true,
+            },
           },
-        });
+        },
+      });
 
       if (!schedule) {
-        throw new NotFoundException(
-          'Agendamento não encontrado.',
-        );
+        throw new NotFoundException('Agendamento não encontrado.');
       }
 
       await this.prisma.schedule.delete({
@@ -466,20 +424,28 @@ export class SchedulesService {
         schedule.id,
       );
 
+      await this.auditDevices([schedule.deviceId], {
+        actor,
+        action: 'SCHEDULE_DELETED',
+        message: `excluiu o agendamento "${schedule.name}" da playlist "${schedule.playlist.name}".`,
+        entityType: 'SCHEDULE',
+        entityId: schedule.id,
+        metadata: {
+          scheduleName: schedule.name,
+          playlistName: schedule.playlist.name,
+        },
+      });
+
       return {
         success: true,
-        message:
-          'Agendamento excluído com sucesso.',
+        message: 'Agendamento excluído com sucesso.',
       };
     } catch (error) {
       if (error instanceof HttpException) {
         throw error;
       }
 
-      console.error(
-        '[SCHEDULES] Erro ao excluir:',
-        error,
-      );
+      console.error('[SCHEDULES] Erro ao excluir:', error);
 
       throw new InternalServerErrorException(
         'Erro interno ao excluir agendamento.',
@@ -487,58 +453,38 @@ export class SchedulesService {
     }
   }
 
-  private parseDate(
-    value: string | Date,
-    fieldName: string,
-  ) {
+  private parseDate(value: string | Date, fieldName: string) {
     if (value instanceof Date) {
       if (Number.isNaN(value.getTime())) {
-        throw new BadRequestException(
-          `${fieldName} inválida.`,
-        );
+        throw new BadRequestException(`${fieldName} inválida.`);
       }
 
       return value;
     }
 
-    const normalizedValue =
-      /^\d{4}-\d{2}-\d{2}$/.test(value)
-        ? `${value}T00:00:00`
-        : value;
+    const normalizedValue = /^\d{4}-\d{2}-\d{2}$/.test(value)
+      ? `${value}T00:00:00`
+      : value;
 
     const date = new Date(normalizedValue);
 
     if (Number.isNaN(date.getTime())) {
-      throw new BadRequestException(
-        `${fieldName} inválida.`,
-      );
+      throw new BadRequestException(`${fieldName} inválida.`);
     }
 
     return date;
   }
 
-  private validateDateRange(
-    startDate: Date,
-    endDate: Date,
-  ) {
-    if (
-      endDate.getTime() <
-      startDate.getTime()
-    ) {
+  private validateDateRange(startDate: Date, endDate: Date) {
+    if (endDate.getTime() < startDate.getTime()) {
       throw new BadRequestException(
         'A data final não pode ser anterior à data inicial.',
       );
     }
   }
 
-  private validateTime(
-    value: string,
-    fieldName: string,
-  ) {
-    const validTime =
-      /^([01]\d|2[0-3]):[0-5]\d$/.test(
-        value,
-      );
+  private validateTime(value: string, fieldName: string) {
+    const validTime = /^([01]\d|2[0-3]):[0-5]\d$/.test(value);
 
     if (!validTime) {
       throw new BadRequestException(
@@ -547,34 +493,24 @@ export class SchedulesService {
     }
   }
 
-  private normalizeDaysOfWeek(
-    value: string,
-  ) {
+  private normalizeDaysOfWeek(value: string) {
     if (typeof value !== 'string') {
-      throw new BadRequestException(
-        'Os dias da semana são inválidos.',
-      );
+      throw new BadRequestException('Os dias da semana são inválidos.');
     }
 
     const days = value
       .split(',')
-      .map(day => day.trim())
+      .map((day) => day.trim())
       .filter(Boolean);
 
     if (days.length === 0) {
-      throw new BadRequestException(
-        'Informe pelo menos um dia da semana.',
-      );
+      throw new BadRequestException('Informe pelo menos um dia da semana.');
     }
 
-    const invalidDay = days.find(day => {
+    const invalidDay = days.find((day) => {
       const number = Number(day);
 
-      return (
-        !Number.isInteger(number) ||
-        number < 0 ||
-        number > 6
-      );
+      return !Number.isInteger(number) || number < 0 || number > 6;
     });
 
     if (invalidDay) {
@@ -584,23 +520,104 @@ export class SchedulesService {
     }
 
     return [...new Set(days.map(Number))]
-      .sort(
-        (first, second) =>
-          first - second,
-      )
+      .sort((first, second) => first - second)
       .join(',');
   }
 
-  private validatePriority(
-    priority: number,
-  ) {
-    if (
-      !Number.isInteger(priority) ||
-      priority < 1
-    ) {
+  private validatePriority(priority: number) {
+    if (!Number.isInteger(priority) || priority < 1) {
       throw new BadRequestException(
         'A prioridade deve ser um número inteiro maior ou igual a 1.',
       );
     }
+  }
+
+  private async auditScheduleUpdate(
+    previous: {
+      id: string;
+      name: string;
+      deviceId: string;
+      playlistId: string;
+      active: boolean;
+      playlist: { name: string };
+    },
+    current: {
+      id: string;
+      name: string;
+      deviceId: string;
+      playlistId: string;
+      active: boolean;
+      playlist: { name: string };
+    },
+    actor: DeviceAuditActor,
+  ) {
+    if (previous.deviceId !== current.deviceId) {
+      await Promise.all([
+        this.auditDevices([previous.deviceId], {
+          actor,
+          action: 'SCHEDULE_MOVED_FROM_DEVICE',
+          message: `removeu o agendamento "${current.name}" deste Player.`,
+          entityType: 'SCHEDULE',
+          entityId: current.id,
+          metadata: {
+            scheduleName: current.name,
+            playlistName: current.playlist.name,
+          },
+        }),
+        this.auditDevices([current.deviceId], {
+          actor,
+          action: 'SCHEDULE_MOVED_TO_DEVICE',
+          message: `vinculou o agendamento "${current.name}" a este Player usando a playlist "${current.playlist.name}".`,
+          entityType: 'SCHEDULE',
+          entityId: current.id,
+          metadata: {
+            scheduleName: current.name,
+            playlistName: current.playlist.name,
+          },
+        }),
+      ]);
+      return;
+    }
+
+    let action = 'SCHEDULE_UPDATED';
+    let message = `alterou o agendamento "${current.name}".`;
+
+    if (previous.active !== current.active) {
+      action = current.active ? 'SCHEDULE_ACTIVATED' : 'SCHEDULE_DEACTIVATED';
+      message = `${current.active ? 'ativou' : 'desativou'} o agendamento "${current.name}" da playlist "${current.playlist.name}".`;
+    } else if (previous.playlistId !== current.playlistId) {
+      action = 'SCHEDULE_PLAYLIST_CHANGED';
+      message = `alterou o agendamento "${current.name}" da playlist "${previous.playlist.name}" para "${current.playlist.name}".`;
+    }
+
+    await this.auditDevices([current.deviceId], {
+      actor,
+      action,
+      message,
+      entityType: 'SCHEDULE',
+      entityId: current.id,
+      metadata: {
+        scheduleName: current.name,
+        playlistName: current.playlist.name,
+        active: current.active,
+      },
+    });
+  }
+
+  private async auditDevices(deviceIds: string[], event: DeviceAuditEvent) {
+    const uniqueDeviceIds = [...new Set(deviceIds)];
+
+    if (uniqueDeviceIds.length === 0) {
+      return;
+    }
+
+    const message = serializeDeviceAuditEvent(event);
+
+    await this.prisma.deviceLog.createMany({
+      data: uniqueDeviceIds.map((deviceId) => ({
+        deviceId,
+        message,
+      })),
+    });
   }
 }

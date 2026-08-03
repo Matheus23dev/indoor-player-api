@@ -1,8 +1,6 @@
 import { Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
+import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ServeStaticModule } from '@nestjs/serve-static';
-
-import { join } from 'path';
 
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -16,21 +14,36 @@ import { MediasModule } from './medias/medias.module';
 import { PlaylistsModule } from './playlists/playlists.module';
 import { SchedulesModule } from './schedules/schedules.module';
 import { FoldersModule } from './folders/folders.module';
+import { getMediaPublicPath, getMediaStoragePath } from './config/environment';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
+      cache: true,
+      expandVariables: true,
     }),
 
-    ServeStaticModule.forRoot({
-      rootPath: join(
-        __dirname,
-        '..',
-        'uploads',
-      ),
-
-      serveRoot: '/uploads',
+    ServeStaticModule.forRootAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => [
+        {
+          rootPath: getMediaStoragePath(
+            config.get<string>('MEDIA_STORAGE_PATH'),
+          ),
+          serveRoot: getMediaPublicPath(
+            config.get<string>('MEDIA_PUBLIC_PATH'),
+          ),
+          serveStaticOptions: {
+            acceptRanges: true,
+            cacheControl: true,
+            etag: true,
+            index: false,
+            maxAge: '1h',
+          },
+        },
+      ],
     }),
 
     PrismaModule,
@@ -41,7 +54,7 @@ import { FoldersModule } from './folders/folders.module';
     MediasModule,
     PlaylistsModule,
     SchedulesModule,
-    FoldersModule
+    FoldersModule,
   ],
 
   controllers: [AppController],

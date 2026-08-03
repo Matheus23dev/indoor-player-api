@@ -4,6 +4,6 @@ import { MediasController } from './medias.controller';
 
 @Module({
   providers: [MediasService],
-  controllers: [MediasController]
+  controllers: [MediasController],
 })
 export class MediasModule {}

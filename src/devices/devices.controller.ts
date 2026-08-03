@@ -10,261 +10,166 @@ import {
   UseGuards,
 } from '@nestjs/common';
 
-import type {
-  Request,
-} from 'express';
+import type { Request } from 'express';
 
-import {
-  DevicesService,
-} from './devices.service';
+import { DevicesService } from './devices.service';
 
-import {
-  JwtAuthGuard,
-} from '../auth/jwt-auth.guard';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
 import {
   DeviceAuthGuard,
   type DeviceAuthenticatedRequest,
 } from './device-auth.guard';
 
-import {
-  ActivateDeviceDto,
-} from './dto/activate-device.dto';
+import { ActivateDeviceDto } from './dto/activate-device.dto';
 
-import {
-  HeartbeatDto,
-} from './dto/heartbeat.dto';
+import { HeartbeatDto } from './dto/heartbeat.dto';
 
-import {
-  PairDeviceDto,
-} from './dto/pair-device.dto';
+import { PairDeviceDto } from './dto/pair-device.dto';
+import type { DeviceAuditActor } from './device-audit';
 
-interface AuthenticatedRequest
-  extends Request {
-  user: {
-    id:
-      string;
-
-    companyId:
-      string;
+interface AuthenticatedRequest extends Request {
+  user: DeviceAuditActor & {
+    companyId: string;
   };
 }
 
 @Controller('devices')
 export class DevicesController {
-  constructor(
-    private readonly devicesService:
-      DevicesService,
-  ) {}
+  constructor(private readonly devicesService: DevicesService) {}
 
   @Post('register')
   register() {
-    return this.devicesService
-      .registerDevice();
+    return this.devicesService.registerDevice();
   }
 
   @Post('activate')
   activate(
     @Body()
-    dto:
-      ActivateDeviceDto,
+    dto: ActivateDeviceDto,
   ) {
-    return this.devicesService
-      .activateDevice(
-        dto.code,
-        dto.activationSecret,
-      );
+    return this.devicesService.activateDevice(dto.code, dto.activationSecret);
   }
 
   @Get('code/:code')
   findByCode(
     @Param('code')
-    code:
-      string,
+    code: string,
   ) {
-    return this.devicesService
-      .findByCode(
-        code,
-      );
+    return this.devicesService.findByCode(code);
   }
 
   @Get('current-playlist')
-  @UseGuards(
-    DeviceAuthGuard,
-  )
+  @UseGuards(DeviceAuthGuard)
   currentPlaylist(
     @Req()
-    req:
-      DeviceAuthenticatedRequest,
+    req: DeviceAuthenticatedRequest,
   ) {
-    return this.devicesService
-      .currentPlaylist(
-        req.device.code,
-      );
+    return this.devicesService.currentPlaylist(req.device.code);
   }
 
   @Get('programming')
-  @UseGuards(
-    DeviceAuthGuard,
-  )
+  @UseGuards(DeviceAuthGuard)
   programming(
     @Req()
-    req:
-      DeviceAuthenticatedRequest,
+    req: DeviceAuthenticatedRequest,
 
     @Query('hours')
-    hours =
-      '24',
+    hours = '24',
 
     @Query('limit')
-    limit =
-      '20',
+    limit = '20',
   ) {
-    return this.devicesService
-      .programming(
-        req.device.code,
-        Number(
-          hours,
-        ),
-        Number(
-          limit,
-        ),
-      );
+    return this.devicesService.programming(
+      req.device.code,
+      Number(hours),
+      Number(limit),
+    );
   }
 
   @Post('heartbeat')
-  @UseGuards(
-    DeviceAuthGuard,
-  )
+  @UseGuards(DeviceAuthGuard)
   heartbeat(
     @Body()
-    dto:
-      HeartbeatDto,
+    dto: HeartbeatDto,
 
     @Req()
-    req:
-      DeviceAuthenticatedRequest,
+    req: DeviceAuthenticatedRequest,
   ) {
-    return this.devicesService
-      .heartbeat(
-        dto,
-        req.device.id,
-      );
+    return this.devicesService.heartbeat(dto, req.device);
   }
 
   @Post('pair')
-  @UseGuards(
-    JwtAuthGuard,
-  )
+  @UseGuards(JwtAuthGuard)
   pair(
     @Body()
-    dto:
-      PairDeviceDto,
+    dto: PairDeviceDto,
 
     @Req()
-    req:
-      AuthenticatedRequest,
+    req: AuthenticatedRequest,
   ) {
-    return this.devicesService
-      .pairDevice(
-        dto.code,
-        dto.name,
-        req.user.companyId,
-      );
+    return this.devicesService.pairDevice(
+      dto.code,
+      dto.name,
+      req.user.companyId,
+      req.user,
+    );
   }
 
   @Get()
-  @UseGuards(
-    JwtAuthGuard,
-  )
+  @UseGuards(JwtAuthGuard)
   list(
     @Req()
-    req:
-      AuthenticatedRequest,
+    req: AuthenticatedRequest,
   ) {
-    return this.devicesService
-      .list(
-        req.user.companyId,
-      );
+    return this.devicesService.list(req.user.companyId);
   }
 
   @Get(':id/preview')
-  @UseGuards(
-    JwtAuthGuard,
-  )
+  @UseGuards(JwtAuthGuard)
   preview(
     @Param('id')
-    id:
-      string,
+    id: string,
 
     @Req()
-    req:
-      AuthenticatedRequest,
+    req: AuthenticatedRequest,
   ) {
-    return this.devicesService
-      .preview(
-        id,
-        req.user.companyId,
-      );
+    return this.devicesService.preview(id, req.user.companyId);
   }
 
   @Get(':id/logs')
-  @UseGuards(
-    JwtAuthGuard,
-  )
+  @UseGuards(JwtAuthGuard)
   logs(
     @Param('id')
-    id:
-      string,
+    id: string,
 
     @Req()
-    req:
-      AuthenticatedRequest,
+    req: AuthenticatedRequest,
   ) {
-    return this.devicesService
-      .logs(
-        id,
-        req.user.companyId,
-      );
+    return this.devicesService.logs(id, req.user.companyId);
   }
 
   @Post(':id/unlink')
-  @UseGuards(
-    JwtAuthGuard,
-  )
+  @UseGuards(JwtAuthGuard)
   unlink(
     @Param('id')
-    id:
-      string,
+    id: string,
 
     @Req()
-    req:
-      AuthenticatedRequest,
+    req: AuthenticatedRequest,
   ) {
-    return this.devicesService
-      .unlinkDevice(
-        id,
-        req.user.companyId,
-      );
+    return this.devicesService.unlinkDevice(id, req.user.companyId, req.user);
   }
 
   @Delete(':id')
-  @UseGuards(
-    JwtAuthGuard,
-  )
+  @UseGuards(JwtAuthGuard)
   delete(
     @Param('id')
-    id:
-      string,
+    id: string,
 
     @Req()
-    req:
-      AuthenticatedRequest,
+    req: AuthenticatedRequest,
   ) {
-    return this.devicesService
-      .deleteDevice(
-        id,
-        req.user.companyId,
-      );
+    return this.devicesService.deleteDevice(id, req.user.companyId);
   }
 }

@@ -6,21 +6,12 @@ import { PlaylistsController } from './playlists.controller';
 import { PlaylistsService } from './playlists.service';
 
 @Module({
-  imports: [
-    PrismaModule,
-    DevicesModule,
-  ],
+  imports: [PrismaModule, DevicesModule],
 
-  controllers: [
-    PlaylistsController,
-  ],
+  controllers: [PlaylistsController],
 
-  providers: [
-    PlaylistsService,
-  ],
+  providers: [PlaylistsService],
 
-  exports: [
-    PlaylistsService,
-  ],
+  exports: [PlaylistsService],
 })
 export class PlaylistsModule {}

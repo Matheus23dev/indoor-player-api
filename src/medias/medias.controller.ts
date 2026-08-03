@@ -21,6 +21,7 @@ import * as fs from 'fs-extra';
 import * as path from 'path';
 
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { getMediaStoragePath } from '../config/environment';
 import { MediasService } from './medias.service';
 
 interface AuthenticatedRequest extends Request {
@@ -30,19 +31,10 @@ interface AuthenticatedRequest extends Request {
   };
 }
 
-const uploadsDirectory = path.resolve(
-  '/var/www/files/indoor-player-api',
-);
-
-const maxUploadSizeBytes =
-  500 * 1024 * 1024;
-
-fs.ensureDirSync(uploadsDirectory);
+const maxUploadSizeBytes = 500 * 1024 * 1024;
 
 function sanitizeFileName(originalName: string) {
-  const extension = path
-    .extname(originalName)
-    .toLowerCase();
+  const extension = path.extname(originalName).toLowerCase();
 
   const name = path
     .basename(originalName, extension)
@@ -62,43 +54,35 @@ function sanitizeFileName(originalName: string) {
 @Controller('medias')
 @UseGuards(JwtAuthGuard)
 export class MediasController {
-  constructor(
-    private readonly mediasService: MediasService,
-  ) {}
+  constructor(private readonly mediasService: MediasService) {}
 
   @Post('upload')
   @UseInterceptors(
     FileInterceptor('file', {
       storage: diskStorage({
-        destination: uploadsDirectory,
+        destination: (_request, _file, callback) => {
+          try {
+            const directory = getMediaStoragePath();
+            fs.ensureDirSync(directory);
+            callback(null, directory);
+          } catch (error) {
+            callback(error as Error, '');
+          }
+        },
 
-        filename: (
-          _request,
-          file,
-          callback,
-        ) => {
-          const { extension, name } =
-            sanitizeFileName(
-              file.originalname,
-            );
+        filename: (_request, file, callback) => {
+          const { extension, name } = sanitizeFileName(file.originalname);
 
-          const fileName =
-            `${Date.now()}-${randomUUID()}-${name}${extension}`;
+          const fileName = `${Date.now()}-${randomUUID()}-${name}${extension}`;
 
           callback(null, fileName);
         },
       }),
 
-      fileFilter: (
-        _request,
-        file,
-        callback,
-      ) => {
-        const isImage =
-          file.mimetype.startsWith('image/');
+      fileFilter: (_request, file, callback) => {
+        const isImage = file.mimetype.startsWith('image/');
 
-        const isVideo =
-          file.mimetype.startsWith('video/');
+        const isVideo = file.mimetype.startsWith('video/');
 
         if (!isImage && !isVideo) {
           callback(
@@ -130,9 +114,7 @@ export class MediasController {
     req: AuthenticatedRequest,
   ) {
     if (!file) {
-      throw new BadRequestException(
-        'Nenhum arquivo foi enviado.',
-      );
+      throw new BadRequestException('Nenhum arquivo foi enviado.');
     }
 
     return this.mediasService.upload(
@@ -147,9 +129,7 @@ export class MediasController {
     @Req()
     req: AuthenticatedRequest,
   ) {
-    return this.mediasService.list(
-      req.user.companyId,
-    );
+    return this.mediasService.list(req.user.companyId);
   }
 
   @Delete(':id')
@@ -160,9 +140,6 @@ export class MediasController {
     @Req()
     req: AuthenticatedRequest,
   ) {
-    return this.mediasService.remove(
-      id,
-      req.user.companyId,
-    );
+    return this.mediasService.remove(id, req.user.companyId);
   }
 }

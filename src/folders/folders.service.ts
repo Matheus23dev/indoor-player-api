@@ -12,19 +12,11 @@ import { CreateFolderDto } from './dto/create-folder.dto';
 
 @Injectable()
 export class FoldersService {
-  constructor(
-    private readonly prisma: PrismaService,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
-  async create(
-    companyId: string,
-    data: CreateFolderDto,
-  ) {
+  async create(companyId: string, data: CreateFolderDto) {
     try {
-      const name =
-        this.normalizeName(
-          data.name,
-        );
+      const name = this.normalizeName(data.name);
 
       return await this.prisma.folder.create({
         data: {
@@ -41,16 +33,11 @@ export class FoldersService {
         },
       });
     } catch (error) {
-      this.handleError(
-        error,
-        'Erro ao criar a pasta.',
-      );
+      this.handleError(error, 'Erro ao criar a pasta.');
     }
   }
 
-  async list(
-    companyId: string,
-  ) {
+  async list(companyId: string) {
     try {
       return await this.prisma.folder.findMany({
         where: {
@@ -70,41 +57,28 @@ export class FoldersService {
         },
       });
     } catch (error) {
-      this.handleError(
-        error,
-        'Erro ao listar pastas.',
-      );
+      this.handleError(error, 'Erro ao listar pastas.');
     }
   }
 
-  async update(
-    id: string,
-    companyId: string,
-    data: CreateFolderDto,
-  ) {
+  async update(id: string, companyId: string, data: CreateFolderDto) {
     try {
-      const folder =
-        await this.prisma.folder.findFirst({
-          where: {
-            id,
-            companyId,
-          },
+      const folder = await this.prisma.folder.findFirst({
+        where: {
+          id,
+          companyId,
+        },
 
-          select: {
-            id: true,
-          },
-        });
+        select: {
+          id: true,
+        },
+      });
 
       if (!folder) {
-        throw new NotFoundException(
-          'Pasta não encontrada.',
-        );
+        throw new NotFoundException('Pasta não encontrada.');
       }
 
-      const name =
-        this.normalizeName(
-          data.name,
-        );
+      const name = this.normalizeName(data.name);
 
       return await this.prisma.folder.update({
         where: {
@@ -124,91 +98,70 @@ export class FoldersService {
         },
       });
     } catch (error) {
-      this.handleError(
-        error,
-        'Erro ao renomear a pasta.',
-      );
+      this.handleError(error, 'Erro ao renomear a pasta.');
     }
   }
 
-  async remove(
-    id: string,
-    companyId: string,
-  ) {
+  async remove(id: string, companyId: string) {
     try {
-      const folder =
-        await this.prisma.folder.findFirst({
+      const folder = await this.prisma.folder.findFirst({
+        where: {
+          id,
+          companyId,
+        },
+
+        select: {
+          id: true,
+          name: true,
+
+          _count: {
+            select: {
+              medias: true,
+            },
+          },
+        },
+      });
+
+      if (!folder) {
+        throw new NotFoundException('Pasta não encontrada.');
+      }
+
+      await this.prisma.$transaction(async (tx) => {
+        await tx.media.updateMany({
           where: {
-            id,
+            folderId: folder.id,
             companyId,
           },
 
-          select: {
-            id: true,
-            name: true,
-
-            _count: {
-              select: {
-                medias: true,
-              },
-            },
+          data: {
+            folderId: null,
           },
         });
 
-      if (!folder) {
-        throw new NotFoundException(
-          'Pasta não encontrada.',
-        );
-      }
-
-      await this.prisma.$transaction(
-        async tx => {
-          await tx.media.updateMany({
-            where: {
-              folderId: folder.id,
-              companyId,
-            },
-
-            data: {
-              folderId: null,
-            },
-          });
-
-          await tx.folder.delete({
-            where: {
-              id: folder.id,
-            },
-          });
-        },
-      );
+        await tx.folder.delete({
+          where: {
+            id: folder.id,
+          },
+        });
+      });
 
       return {
         success: true,
 
-        message:
-          'Pasta excluída com sucesso.',
+        message: 'Pasta excluída com sucesso.',
 
-        mediasMovedToRoot:
-          folder._count.medias,
+        mediasMovedToRoot: folder._count.medias,
       };
     } catch (error) {
-      this.handleError(
-        error,
-        'Erro ao deletar a pasta.',
-      );
+      this.handleError(error, 'Erro ao deletar a pasta.');
     }
   }
 
-  private normalizeName(
-    value: string,
-  ) {
-    const name =
-      value?.trim();
+  private normalizeName(value: string) {
+    const name = value?.trim();
 
     if (!name) {
-      throw new BadRequestException(
-        'O nome da pasta é obrigatório.',
-      );
+      throw new BadRequestException('O nome da pasta é obrigatório.');
     }
 
     if (name.length > 100) {
@@ -220,24 +173,13 @@ export class FoldersService {
     return name;
   }
 
-  private handleError(
-    error: unknown,
-    defaultMessage: string,
-  ): never {
-    if (
-      error instanceof
-      HttpException
-    ) {
+  private handleError(error: unknown, defaultMessage: string): never {
+    if (error instanceof HttpException) {
       throw error;
     }
 
-    console.error(
-      '[FOLDERS]',
-      error,
-    );
+    console.error('[FOLDERS]', error);
 
-    throw new InternalServerErrorException(
-      defaultMessage,
-    );
+    throw new InternalServerErrorException(defaultMessage);
   }
 }

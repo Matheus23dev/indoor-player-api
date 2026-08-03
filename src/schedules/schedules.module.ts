@@ -5,21 +5,12 @@ import { SchedulesController } from './schedules.controller';
 import { SchedulesService } from './schedules.service';
 
 @Module({
-  imports: [
-    PrismaModule,
-    DevicesModule,
-  ],
+  imports: [PrismaModule, DevicesModule],
 
-  controllers: [
-    SchedulesController,
-  ],
+  controllers: [SchedulesController],
 
-  providers: [
-    SchedulesService,
-  ],
+  providers: [SchedulesService],
 
-  exports: [
-    SchedulesService,
-  ],
+  exports: [SchedulesService],
 })
 export class SchedulesModule {}

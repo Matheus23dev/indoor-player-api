@@ -1,4 +1,10 @@
-import { BadRequestException, HttpException, Injectable, InternalServerErrorException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  HttpException,
+  Injectable,
+  InternalServerErrorException,
+  NotFoundException,
+} from '@nestjs/common';
 import { createHash, randomInt } from 'crypto';
 import { DateTime } from 'luxon';
 import { DeviceStatus, Prisma } from '@prisma/client';
@@ -6,9 +12,16 @@ import { PrismaService } from '../prisma/prisma.service';
 import { HeartbeatDto } from './dto/heartbeat.dto';
 import { DeviceAuthService } from './device-auth.service';
 import { DevicesGateway } from './devices.gateway';
+import type { AuthenticatedDevice } from './device-auth.types';
+import {
+  PLAYER_LOG_PREFIX,
+  serializeDeviceAuditEvent,
+  type DeviceAuditActor,
+} from './device-audit';
 
 const ONLINE_TIMEOUT_MS = 60_000;
-const SCHEDULE_TIME_ZONE = process.env.SCHEDULE_TIME_ZONE ?? 'America/Fortaleza';
+const SCHEDULE_TIME_ZONE =
+  process.env.SCHEDULE_TIME_ZONE ?? 'America/Fortaleza';
 const DEFAULT_PROGRAMMING_HOURS = 24;
 const MAX_PROGRAMMING_HOURS = 168;
 const DEFAULT_PROGRAMMING_LIMIT = 20;
@@ -139,13 +152,9 @@ export class DevicesService {
     for (let attempt = 0; attempt < 10; attempt += 1) {
       const code = this.generateCode();
       const activationSecret =
-        this.deviceAuthService
-          .generateActivationSecret();
+        this.deviceAuthService.generateActivationSecret();
       const activationSecretHash =
-        this.deviceAuthService
-          .hashSecret(
-            activationSecret,
-          );
+        this.deviceAuthService.hashSecret(activationSecret);
       try {
         const device = await this.prisma.device.create({
           data: {
@@ -178,18 +187,16 @@ export class DevicesService {
     );
   }
 
-  activateDevice(
-    code: string,
-    activationSecret: string,
-  ) {
-    return this.deviceAuthService
-      .activateDevice(
-        code,
-        activationSecret,
-      );
+  activateDevice(code: string, activationSecret: string) {
+    return this.deviceAuthService.activateDevice(code, activationSecret);
   }
 
-  async pairDevice(code: string, name: string, companyId: string) {
+  async pairDevice(
+    code: string,
+    name: string,
+    companyId: string,
+    actor: DeviceAuditActor,
+  ) {
     try {
       const normalizedCode = this.normalizeCode(code);
       const normalizedName = name.trim();
@@ -218,10 +225,17 @@ export class DevicesService {
           isLinked: true,
         },
       });
-      await this.createLog(
-        device.id,
-        'Dispositivo vinculado à empresa com sucesso.',
-      );
+      await this.createAuditLog(device.id, {
+        actor,
+        action: 'DEVICE_LINKED',
+        message: `vinculou o dispositivo "${normalizedName}" à empresa.`,
+        entityType: 'DEVICE',
+        entityId: device.id,
+        metadata: {
+          deviceName: normalizedName,
+          deviceCode: device.code,
+        },
+      });
       return updatedDevice;
     } catch (error) {
       if (error instanceof HttpException) {
@@ -421,10 +435,10 @@ export class DevicesService {
           .minus({
             days: 1,
           })
-          .toISODate()!}T00:00:00.000Z`,
+          .toISODate()}T00:00:00.000Z`,
       );
       const databaseEndDate = new Date(
-        `${windowEnd.toISODate()!}T23:59:59.999Z`,
+        `${windowEnd.toISODate()}T23:59:59.999Z`,
       );
       const schedules = await this.prisma.schedule.findMany({
         where: {
@@ -539,20 +553,20 @@ export class DevicesService {
   async unlinkDevice(
     deviceId: string,
     companyId: string,
+    actor: DeviceAuditActor,
   ) {
     try {
-      const device =
-        await this.prisma.device.findFirst({
-          where: {
-            id: deviceId,
-            companyId,
-          },
-          select: {
-            id: true,
-            code: true,
-            name: true,
-          },
-        });
+      const device = await this.prisma.device.findFirst({
+        where: {
+          id: deviceId,
+          companyId,
+        },
+        select: {
+          id: true,
+          code: true,
+          name: true,
+        },
+      });
       if (!device) {
         throw new NotFoundException(
           'Dispositivo não encontrado ou não pertence a esta conta.',
@@ -588,15 +602,21 @@ export class DevicesService {
         await transaction.deviceLog.create({
           data: {
             deviceId: device.id,
-            message: 'Dispositivo desvinculado da empresa.',
+            message: serializeDeviceAuditEvent({
+              actor,
+              action: 'DEVICE_UNLINKED',
+              message: `desvinculou o dispositivo "${device.name || device.code}" da empresa.`,
+              entityType: 'DEVICE',
+              entityId: device.id,
+              metadata: {
+                deviceName: device.name,
+                deviceCode: device.code,
+              },
+            }),
           },
         });
       });
-      this.devicesGateway.notifyDeviceUnlinked(
-        device.id,
-        'UNLINKED',
-        true,
-      );
+      this.devicesGateway.notifyDeviceUnlinked(device.id, 'UNLINKED', true);
       return {
         success: true,
         deviceId: device.id,
@@ -607,32 +627,25 @@ export class DevicesService {
       if (error instanceof HttpException) {
         throw error;
       }
-      console.error(
-        '[DEVICES] Erro ao desvincular dispositivo:',
-        error,
-      );
+      console.error('[DEVICES] Erro ao desvincular dispositivo:', error);
       throw new InternalServerErrorException(
         'Erro ao desvincular dispositivo.',
       );
     }
   }
 
-  async deleteDevice(
-    deviceId: string,
-    companyId: string,
-  ) {
+  async deleteDevice(deviceId: string, companyId: string) {
     try {
-      const device =
-        await this.prisma.device.findFirst({
-          where: {
-            id: deviceId,
-            companyId,
-          },
-          select: {
-            id: true,
-            code: true,
-          },
-        });
+      const device = await this.prisma.device.findFirst({
+        where: {
+          id: deviceId,
+          companyId,
+        },
+        select: {
+          id: true,
+          code: true,
+        },
+      });
       if (!device) {
         throw new NotFoundException(
           'Dispositivo não encontrado ou não pertence a esta conta.',
@@ -655,11 +668,7 @@ export class DevicesService {
           },
         });
       });
-      this.devicesGateway.notifyDeviceUnlinked(
-        device.id,
-        'DELETED',
-        false,
-      );
+      this.devicesGateway.notifyDeviceUnlinked(device.id, 'DELETED', false);
       return {
         success: true,
         deviceId: device.id,
@@ -670,29 +679,13 @@ export class DevicesService {
       if (error instanceof HttpException) {
         throw error;
       }
-      console.error(
-        '[DEVICES] Erro ao excluir dispositivo:',
-        error,
-      );
-      throw new InternalServerErrorException(
-        'Erro ao excluir dispositivo.',
-      );
+      console.error('[DEVICES] Erro ao excluir dispositivo:', error);
+      throw new InternalServerErrorException('Erro ao excluir dispositivo.');
     }
   }
 
-  async heartbeat(
-    dto: HeartbeatDto,
-    deviceId: string,
-  ) {
+  async heartbeat(dto: HeartbeatDto, device: AuthenticatedDevice) {
     try {
-      const device = await this.prisma.device.findUnique({
-        where: {
-          id: deviceId,
-        },
-      });
-      if (!device) {
-        throw new NotFoundException('Dispositivo não encontrado.');
-      }
       const now = new Date();
       const includesPlaybackState = [
         'playlistId',
@@ -700,6 +693,7 @@ export class DevicesService {
         'mediaId',
         'currentTime',
         'duration',
+        'muted',
         'startedAt',
       ].some((key) => Object.prototype.hasOwnProperty.call(dto, key));
       const playbackData: Prisma.DeviceUpdateInput = {
@@ -718,12 +712,17 @@ export class DevicesService {
             'Playlist, item e mídia devem ser informados juntos.',
           );
         }
-        if (playlistId && playlistItemId && mediaId) {
-          if (!device.companyId) {
-            throw new BadRequestException(
-              'O dispositivo ainda não está vinculado a uma empresa.',
-            );
-          }
+        const playbackIdentityChanged =
+          playlistId !== device.currentPlaylistId ||
+          playlistItemId !== device.currentPlaylistItemId ||
+          mediaId !== device.currentMediaId;
+
+        if (
+          playbackIdentityChanged &&
+          playlistId &&
+          playlistItemId &&
+          mediaId
+        ) {
           const validItem = await this.prisma.playlistItem.findFirst({
             where: {
               id: playlistItemId,
@@ -775,6 +774,7 @@ export class DevicesService {
             };
         playbackData.currentMediaTime = dto.currentTime ?? null;
         playbackData.currentMediaDuration = dto.duration ?? null;
+        playbackData.playbackMuted = dto.muted ?? null;
         playbackData.currentMediaStartedAt = dto.startedAt
           ? new Date(dto.startedAt)
           : null;
@@ -851,11 +851,16 @@ export class DevicesService {
       return this.prisma.deviceLog.findMany({
         where: {
           deviceId,
+          NOT: {
+            message: {
+              startsWith: PLAYER_LOG_PREFIX,
+            },
+          },
         },
         orderBy: {
           createdAt: 'desc',
         },
-        take: 100,
+        take: 500,
       });
     } catch (error) {
       if (error instanceof HttpException) {
@@ -935,6 +940,7 @@ export class DevicesService {
           currentTime,
           duration,
           progress,
+          muted: device.playbackMuted,
           startedAt: device.currentMediaStartedAt,
           updatedAt: device.playbackUpdatedAt,
         },
@@ -1062,7 +1068,7 @@ export class DevicesService {
               scheduleId: schedule.id,
               scheduleName: schedule.name,
               playlistId: schedule.playlist.id,
-              startAt: startsAt.toUTC().toISO()!,
+              startAt: startsAt.toUTC().toISO(),
               endAt: endsAt.toUTC().toISO()!,
               startTimestamp,
               endTimestamp,
@@ -1202,10 +1208,7 @@ export class DevicesService {
     return estimated;
   }
 
-  private getDeviceStatus(
-    lastHeartbeat: Date | null,
-    now: Date,
-  ) {
+  private getDeviceStatus(lastHeartbeat: Date | null, now: Date) {
     if (!lastHeartbeat) {
       return DeviceStatus.OFFLINE;
     }
@@ -1229,11 +1232,14 @@ export class DevicesService {
     return code.trim().toUpperCase();
   }
 
-  private createLog(deviceId: string, message: string) {
+  private createAuditLog(
+    deviceId: string,
+    event: Parameters<typeof serializeDeviceAuditEvent>[0],
+  ) {
     return this.prisma.deviceLog.create({
       data: {
         deviceId,
-        message,
+        message: serializeDeviceAuditEvent(event),
       },
     });
   }

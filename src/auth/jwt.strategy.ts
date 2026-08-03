@@ -1,22 +1,14 @@
-import {
-  Injectable,
-  UnauthorizedException,
-} from '@nestjs/common';
+import { Injectable, UnauthorizedException } from '@nestjs/common';
 
-import {
-  PassportStrategy,
-} from '@nestjs/passport';
+import { PassportStrategy } from '@nestjs/passport';
+import { ConfigService } from '@nestjs/config';
 
-import {
-  ExtractJwt,
-  Strategy,
-} from 'passport-jwt';
+import { ExtractJwt, Strategy } from 'passport-jwt';
 
-import {
-  UserRole,
-} from '@prisma/client';
+import { UserRole } from '@prisma/client';
 
 import { PrismaService } from '../prisma/prisma.service';
+import { getJwtSecret } from '../config/environment';
 
 interface JwtPayload {
   sub: string;
@@ -25,47 +17,41 @@ interface JwtPayload {
 }
 
 @Injectable()
-export class JwtStrategy extends PassportStrategy(
-  Strategy,
-) {
+export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor(
     private readonly prisma: PrismaService,
+    config: ConfigService,
   ) {
     super({
-      jwtFromRequest:
-        ExtractJwt.fromAuthHeaderAsBearerToken(),
+      jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
 
       ignoreExpiration: false,
 
-      secretOrKey:
-        process.env.JWT_SECRET!,
+      secretOrKey: getJwtSecret(config.get<string>('JWT_SECRET')),
     });
   }
 
-  async validate(
-    payload: JwtPayload,
-  ) {
-    const user =
-      await this.prisma.user.findUnique({
-        where: {
-          id: payload.sub,
-        },
+  async validate(payload: JwtPayload) {
+    const user = await this.prisma.user.findUnique({
+      where: {
+        id: payload.sub,
+      },
 
-        select: {
-          id: true,
-          companyId: true,
-          role: true,
-        },
-      });
+      select: {
+        id: true,
+        name: true,
+        companyId: true,
+        role: true,
+      },
+    });
 
     if (!user) {
-      throw new UnauthorizedException(
-        'Usuário não encontrado.',
-      );
+      throw new UnauthorizedException('Usuário não encontrado.');
     }
 
     return {
       id: user.id,
+      name: user.name,
       companyId: user.companyId,
       role: user.role,
     };

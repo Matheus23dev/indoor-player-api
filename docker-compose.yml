@@ -1,14 +1,14 @@
 services:
   mysql:
     image: mysql:8.4
-
-    container_name: indoor_mysql
-
-    restart: always
+    container_name: indoor-player-mysql
+    restart: unless-stopped
 
     environment:
       MYSQL_ROOT_PASSWORD: root
       MYSQL_DATABASE: indoor_player
+      MYSQL_USER: indoor_user
+      MYSQL_PASSWORD: indoor_password
 
     ports:
       - "3306:3306"
