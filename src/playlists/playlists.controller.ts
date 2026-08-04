@@ -16,6 +16,7 @@ import { PlaylistsService } from './playlists.service';
 import { CreatePlaylistDto } from './dto/create-playlist.dto';
 import { AddPlaylistItemDto } from './dto/add-playlist-item.dto';
 import { UpdatePlaylistItemDto } from './dto/update-playlist-item.dto';
+import { UpdatePlaylistDto } from './dto/update-playlist.dto';
 import { ReorderPlaylistDto } from './dto/reorder-playlist.dto';
 import type { DeviceAuditActor } from '../devices/device-audit';
 
@@ -46,6 +47,15 @@ export class PlaylistsController {
   @Get(':id')
   findOne(@Param('id') id: string, @Req() req: AuthenticatedRequest) {
     return this.playlistsService.findOne(id, req.user.companyId);
+  }
+
+  @Patch(':id')
+  update(
+    @Param('id') id: string,
+    @Body() dto: UpdatePlaylistDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.playlistsService.update(id, req.user.companyId, dto, req.user);
   }
 
   @Post(':id/items')

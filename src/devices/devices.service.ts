@@ -32,6 +32,7 @@ const devicePreviewInclude = {
     select: {
       id: true,
       name: true,
+      orientation: true,
     },
   },
   currentPlaylistItem: {
@@ -81,6 +82,7 @@ const programmingScheduleSelect = {
     select: {
       id: true,
       name: true,
+      orientation: true,
       updatedAt: true,
       items: {
         orderBy: {
@@ -1092,6 +1094,7 @@ export class DevicesService {
     return Array.from(playlistsMap.values()).map((playlist) => ({
       id: playlist.id,
       name: playlist.name,
+      orientation: playlist.orientation,
       updatedAt: playlist.updatedAt.toISOString(),
       items: playlist.items.map((item) => ({
         id: item.id,

@@ -113,6 +113,7 @@
   model Playlist {
     id        String   @id @default(uuid())
     name      String
+    orientation PlaylistOrientation @default(LANDSCAPE)
     companyId String
     createdAt DateTime @default(now())
     updatedAt DateTime @updatedAt
@@ -190,6 +191,11 @@
   enum MediaType {
     IMAGE
     VIDEO
+  }
+
+  enum PlaylistOrientation {
+    LANDSCAPE
+    PORTRAIT
   }
 
   enum DeviceStatus {

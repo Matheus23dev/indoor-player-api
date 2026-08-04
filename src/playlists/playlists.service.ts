@@ -19,6 +19,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AddPlaylistItemDto } from './dto/add-playlist-item.dto';
 import { CreatePlaylistDto } from './dto/create-playlist.dto';
 import { UpdatePlaylistItemDto } from './dto/update-playlist-item.dto';
+import { UpdatePlaylistDto } from './dto/update-playlist.dto';
 import {
   applyPlaylistItemOrder,
   compactPlaylistItemOrder,
@@ -42,6 +43,7 @@ export class PlaylistsService {
       return await this.prisma.playlist.create({
         data: {
           name,
+          orientation: data.orientation,
           companyId,
         },
       });
@@ -119,6 +121,66 @@ export class PlaylistsService {
       return playlist;
     } catch (error) {
       this.handleError(error, 'Erro interno ao buscar playlist.');
+    }
+  }
+
+  async update(
+    id: string,
+    companyId: string,
+    data: UpdatePlaylistDto,
+    actor: DeviceAuditActor,
+  ) {
+    try {
+      const playlist = await this.prisma.playlist.findFirst({
+        where: {
+          id,
+          companyId,
+        },
+        select: {
+          id: true,
+          name: true,
+          orientation: true,
+        },
+      });
+
+      if (!playlist) {
+        throw new NotFoundException('Playlist não encontrada.');
+      }
+
+      if (playlist.orientation === data.orientation) {
+        return playlist;
+      }
+
+      const updatedPlaylist = await this.prisma.playlist.update({
+        where: {
+          id: playlist.id,
+        },
+        data: {
+          orientation: data.orientation,
+        },
+      });
+
+      await this.devicesGateway.notifyPlaylistChanged(
+        playlist.id,
+        'PLAYLIST_UPDATED',
+      );
+
+      await this.auditPlaylistDevices(playlist.id, {
+        actor,
+        action: 'PLAYLIST_ORIENTATION_UPDATED',
+        message: `alterou a orientação da playlist "${playlist.name}" para ${data.orientation === 'PORTRAIT' ? 'vertical' : 'horizontal'}.`,
+        entityType: 'PLAYLIST',
+        entityId: playlist.id,
+        metadata: {
+          playlistName: playlist.name,
+          previousOrientation: playlist.orientation,
+          orientation: data.orientation,
+        },
+      });
+
+      return updatedPlaylist;
+    } catch (error) {
+      this.handleError(error, 'Erro interno ao atualizar playlist.');
     }
   }
 

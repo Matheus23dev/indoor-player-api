@@ -107,3 +107,46 @@ describe('PlaylistsService.updateItem', () => {
     expect(subject.findFirst).not.toHaveBeenCalled();
   });
 });
+
+describe('PlaylistsService.update', () => {
+  it('updates the orientation and notifies scheduled devices', async () => {
+    const findFirst = jest.fn().mockResolvedValue({
+      id: 'playlist-1',
+      name: 'Vitrine',
+      orientation: 'LANDSCAPE',
+    });
+    const update = jest.fn().mockResolvedValue({
+      id: 'playlist-1',
+      name: 'Vitrine',
+      orientation: 'PORTRAIT',
+    });
+    const notifyPlaylistChanged = jest.fn().mockResolvedValue(undefined);
+    const prisma = {
+      playlist: { findFirst, update },
+      schedule: { findMany: jest.fn().mockResolvedValue([]) },
+    } as unknown as PrismaService;
+    const gateway = {
+      notifyPlaylistChanged,
+    } as unknown as DevicesGateway;
+    const service = new PlaylistsService(prisma, gateway);
+
+    const result = await service.update(
+      'playlist-1',
+      'company-1',
+      { orientation: 'PORTRAIT' },
+      { id: 'admin-1', name: 'Maria' },
+    );
+
+    expect(update).toHaveBeenCalledWith({
+      where: { id: 'playlist-1' },
+      data: { orientation: 'PORTRAIT' },
+    });
+    expect(notifyPlaylistChanged).toHaveBeenCalledWith(
+      'playlist-1',
+      'PLAYLIST_UPDATED',
+    );
+    expect(result).toEqual(
+      expect.objectContaining({ orientation: 'PORTRAIT' }),
+    );
+  });
+});
