@@ -531,6 +531,8 @@ export class OverlayBarsService {
       textColor: item.textColor,
       fontSize: item.fontSize,
       fontWeight: item.fontWeight,
+      ...(item.fontFamily !== undefined ? { fontFamily: item.fontFamily } : {}),
+      ...(item.italic !== undefined ? { italic: item.italic } : {}),
       ...(item.backgroundColor !== undefined
         ? { backgroundColor: item.backgroundColor }
         : {}),

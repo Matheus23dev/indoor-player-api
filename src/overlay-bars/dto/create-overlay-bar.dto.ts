@@ -7,6 +7,7 @@ import {
 import {
   ArrayMaxSize,
   IsArray,
+  IsBoolean,
   IsEnum,
   IsHexColor,
   IsIn,
@@ -44,6 +45,19 @@ export class OverlayBarContentItemDto {
 
   @IsIn(['NORMAL', 'SEMIBOLD', 'BOLD'])
   fontWeight!: 'NORMAL' | 'SEMIBOLD' | 'BOLD';
+
+  @IsOptional()
+  @IsIn(['SYSTEM', 'SANS_SERIF', 'SANS_SERIF_CONDENSED', 'SERIF', 'MONOSPACE'])
+  fontFamily?:
+    | 'SYSTEM'
+    | 'SANS_SERIF'
+    | 'SANS_SERIF_CONDENSED'
+    | 'SERIF'
+    | 'MONOSPACE';
+
+  @IsOptional()
+  @IsBoolean()
+  italic?: boolean;
 
   @IsOptional()
   @IsHexColor()
