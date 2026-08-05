@@ -14,6 +14,8 @@ import { MediasModule } from './medias/medias.module';
 import { PlaylistsModule } from './playlists/playlists.module';
 import { SchedulesModule } from './schedules/schedules.module';
 import { FoldersModule } from './folders/folders.module';
+import { OverlayBarsModule } from './overlay-bars/overlay-bars.module';
+import { WeatherModule } from './weather/weather.module';
 import { getMediaPublicPath, getMediaStoragePath } from './config/environment';
 
 @Module({
@@ -55,6 +57,8 @@ import { getMediaPublicPath, getMediaStoragePath } from './config/environment';
     PlaylistsModule,
     SchedulesModule,
     FoldersModule,
+    OverlayBarsModule,
+    WeatherModule,
   ],
 
   controllers: [AppController],

@@ -84,6 +84,48 @@ const programmingScheduleSelect = {
       name: true,
       orientation: true,
       updatedAt: true,
+      overlayBars: {
+        orderBy: {
+          order: 'asc',
+        },
+        select: {
+          order: true,
+          createdAt: true,
+          overlayBar: {
+            select: {
+              id: true,
+              name: true,
+              position: true,
+              sizePercent: true,
+              backgroundColor: true,
+              opacity: true,
+              fit: true,
+              contentPosition: true,
+              imageSizePercent: true,
+              contentPadding: true,
+              contentGap: true,
+              contentItems: true,
+              textContent: true,
+              textColor: true,
+              fontSize: true,
+              widgetType: true,
+              weatherLocation: true,
+              updatedAt: true,
+              media: {
+                select: {
+                  id: true,
+                  name: true,
+                  type: true,
+                  fileUrl: true,
+                  fileSize: true,
+                  duration: true,
+                  updatedAt: true,
+                },
+              },
+            },
+          },
+        },
+      },
       items: {
         orderBy: {
           order: 'asc',
@@ -1096,6 +1138,38 @@ export class DevicesService {
       name: playlist.name,
       orientation: playlist.orientation,
       updatedAt: playlist.updatedAt.toISOString(),
+      bars: playlist.overlayBars.map((item) => ({
+        id: item.overlayBar.id,
+        name: item.overlayBar.name,
+        position: item.overlayBar.position,
+        sizePercent: item.overlayBar.sizePercent,
+        backgroundColor: item.overlayBar.backgroundColor,
+        opacity: item.overlayBar.opacity,
+        fit: item.overlayBar.fit,
+        contentPosition: item.overlayBar.contentPosition,
+        imageSizePercent: item.overlayBar.imageSizePercent,
+        contentPadding: item.overlayBar.contentPadding,
+        contentGap: item.overlayBar.contentGap,
+        contentItems: item.overlayBar.contentItems,
+        textContent: item.overlayBar.textContent,
+        textColor: item.overlayBar.textColor,
+        fontSize: item.overlayBar.fontSize,
+        widgetType: item.overlayBar.widgetType,
+        weatherLocation: item.overlayBar.weatherLocation,
+        order: item.order,
+        updatedAt: item.overlayBar.updatedAt.toISOString(),
+        media: item.overlayBar.media
+          ? {
+              id: item.overlayBar.media.id,
+              name: item.overlayBar.media.name,
+              type: item.overlayBar.media.type,
+              fileUrl: item.overlayBar.media.fileUrl,
+              fileSize: item.overlayBar.media.fileSize,
+              duration: item.overlayBar.media.duration,
+              updatedAt: item.overlayBar.media.updatedAt.toISOString(),
+            }
+          : null,
+      })),
       items: playlist.items.map((item) => ({
         id: item.id,
         order: item.order,
@@ -1182,6 +1256,14 @@ export class DevicesService {
           latestTimestamp,
           item.createdAt.getTime(),
           item.media.updatedAt.getTime(),
+        );
+      }
+      for (const item of schedule.playlist.overlayBars) {
+        latestTimestamp = Math.max(
+          latestTimestamp,
+          item.createdAt.getTime(),
+          item.overlayBar.updatedAt.getTime(),
+          item.overlayBar.media?.updatedAt.getTime() ?? 0,
         );
       }
     }

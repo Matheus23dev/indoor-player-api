@@ -16,6 +16,7 @@
     devices   Device[]
     folders   Folder[]
     medias    Media[]
+    overlayBars OverlayBar[]
     playlists Playlist[]
     schedules Schedule[]
     users     User[]
@@ -103,6 +104,7 @@
     company        Company        @relation(fields: [companyId], references: [id])
     folder         Folder?        @relation(fields: [folderId], references: [id])
     playlistItems  PlaylistItem[]
+    overlayBars    OverlayBar[]
     currentDevices Device[]       @relation("DeviceCurrentMedia")
 
     @@index([companyId])
@@ -120,6 +122,7 @@
 
     company        Company        @relation(fields: [companyId], references: [id])
     items          PlaylistItem[]
+    overlayBars    PlaylistOverlayBar[]
     schedules      Schedule[]
     currentDevices Device[]       @relation("DeviceCurrentPlaylist")
 
@@ -142,6 +145,52 @@
     @@unique([playlistId, order])
     @@index([playlistId])
     @@index([mediaId])
+  }
+
+  model OverlayBar {
+    id              String             @id @default(uuid())
+    name            String
+    position        OverlayBarPosition
+    sizePercent     Int                @default(12)
+    backgroundColor String             @default("#000000") @db.VarChar(7)
+    opacity         Int                @default(100)
+    fit             OverlayBarFit      @default(CONTAIN)
+    contentPosition OverlayBarContentPosition @default(CENTER)
+    imageSizePercent Int               @default(80)
+    contentPadding  Int                @default(6)
+    contentGap      Int                @default(8)
+    contentItems    Json?
+    textContent     String?            @db.VarChar(500)
+    textColor       String             @default("#FFFFFF") @db.VarChar(7)
+    fontSize        Int                @default(28)
+    widgetType      OverlayBarWidgetType @default(NONE)
+    weatherLocation String?            @db.VarChar(120)
+    companyId       String
+    mediaId         String?
+    createdAt       DateTime           @default(now())
+    updatedAt       DateTime           @updatedAt
+
+    company   Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
+    media     Media?               @relation(fields: [mediaId], references: [id], onDelete: SetNull)
+    playlists PlaylistOverlayBar[]
+
+    @@index([companyId])
+    @@index([mediaId])
+    @@index([position])
+  }
+
+  model PlaylistOverlayBar {
+    playlistId   String
+    overlayBarId String
+    order        Int      @default(1)
+    createdAt    DateTime @default(now())
+
+    playlist   Playlist   @relation(fields: [playlistId], references: [id], onDelete: Cascade)
+    overlayBar OverlayBar @relation(fields: [overlayBarId], references: [id], onDelete: Cascade)
+
+    @@id([playlistId, overlayBarId])
+    @@unique([playlistId, order])
+    @@index([overlayBarId])
   }
 
   model Schedule {
@@ -196,6 +245,32 @@
   enum PlaylistOrientation {
     LANDSCAPE
     PORTRAIT
+  }
+
+  enum OverlayBarPosition {
+    TOP
+    BOTTOM
+    LEFT
+    RIGHT
+  }
+
+  enum OverlayBarFit {
+    CONTAIN
+    COVER
+    FILL
+  }
+
+  enum OverlayBarContentPosition {
+    START
+    CENTER
+    END
+  }
+
+  enum OverlayBarWidgetType {
+    NONE
+    CLOCK
+    DATE
+    WEATHER
   }
 
   enum DeviceStatus {

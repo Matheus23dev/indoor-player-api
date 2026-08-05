@@ -70,9 +70,23 @@ export class PlaylistsService {
             },
           },
 
+          overlayBars: {
+            include: {
+              overlayBar: {
+                include: {
+                  media: true,
+                },
+              },
+            },
+            orderBy: {
+              order: 'asc',
+            },
+          },
+
           _count: {
             select: {
               items: true,
+              overlayBars: true,
               schedules: true,
             },
           },
@@ -101,6 +115,19 @@ export class PlaylistsService {
               media: true,
             },
 
+            orderBy: {
+              order: 'asc',
+            },
+          },
+
+          overlayBars: {
+            include: {
+              overlayBar: {
+                include: {
+                  media: true,
+                },
+              },
+            },
             orderBy: {
               order: 'asc',
             },

@@ -39,6 +39,7 @@ export type ProgrammingChangeReason =
   | 'PLAYLIST_ITEM_ADDED'
   | 'PLAYLIST_ITEM_REMOVED'
   | 'PLAYLIST_REORDERED'
+  | 'PLAYLIST_OVERLAY_BARS_UPDATED'
   | 'PLAYLIST_DELETED';
 
 export type DeviceSessionEndReason = 'UNLINKED' | 'DELETED';
