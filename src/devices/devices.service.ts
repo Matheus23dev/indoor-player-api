@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { createHash, randomInt } from 'crypto';
 import { DateTime } from 'luxon';
-import { DeviceStatus, Prisma } from '@prisma/client';
+import { DeviceStatus, MediaType, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { HeartbeatDto } from './dto/heartbeat.dto';
 import { DeviceAuthService } from './device-auth.service';
@@ -67,6 +67,15 @@ const schedulePreviewSelect = {
   priority: true,
   active: true,
 } satisfies Prisma.ScheduleSelect;
+const programmingContentMediaSelect = {
+  id: true,
+  name: true,
+  type: true,
+  fileUrl: true,
+  fileSize: true,
+  duration: true,
+  updatedAt: true,
+} satisfies Prisma.MediaSelect;
 const programmingScheduleSelect = {
   id: true,
   name: true,
@@ -162,6 +171,9 @@ type SchedulePreview = Prisma.ScheduleGetPayload<{
 }>;
 type ProgrammingSchedule = Prisma.ScheduleGetPayload<{
   select: typeof programmingScheduleSelect;
+}>;
+type ProgrammingContentMedia = Prisma.MediaGetPayload<{
+  select: typeof programmingContentMediaSelect;
 }>;
 
 interface ProgrammingOccurrence {
@@ -538,7 +550,8 @@ export class DevicesService {
       const selectedSchedules = schedules.filter((schedule) =>
         selectedScheduleIds.has(schedule.id),
       );
-      const playlists = this.buildUniqueProgrammingPlaylists(selectedSchedules);
+      const playlists =
+        await this.buildUniqueProgrammingPlaylists(selectedSchedules);
       const currentOccurrence =
         selectedOccurrences
           .filter(
@@ -1129,12 +1142,35 @@ export class DevicesService {
     return occurrences;
   }
 
-  private buildUniqueProgrammingPlaylists(schedules: ProgrammingSchedule[]) {
+  private async buildUniqueProgrammingPlaylists(
+    schedules: ProgrammingSchedule[],
+  ) {
     const playlistsMap = new Map<string, ProgrammingSchedule['playlist']>();
     for (const schedule of schedules) {
       playlistsMap.set(schedule.playlist.id, schedule.playlist);
     }
-    return Array.from(playlistsMap.values()).map((playlist) => ({
+
+    const playlists = Array.from(playlistsMap.values());
+    const contentMediaIds = [
+      ...new Set(
+        playlists.flatMap((playlist) =>
+          playlist.overlayBars.flatMap((item) =>
+            this.getContentImageMediaIds(item.overlayBar.contentItems),
+          ),
+        ),
+      ),
+    ];
+    const contentMedias = contentMediaIds.length
+      ? await this.prisma.media.findMany({
+          where: { id: { in: contentMediaIds }, type: MediaType.IMAGE },
+          select: programmingContentMediaSelect,
+        })
+      : [];
+    const contentMediasById = new Map(
+      contentMedias.map((media) => [media.id, media]),
+    );
+
+    return playlists.map((playlist) => ({
       id: playlist.id,
       name: playlist.name,
       orientation: playlist.orientation,
@@ -1152,7 +1188,10 @@ export class DevicesService {
         imageSizePercent: item.overlayBar.imageSizePercent,
         contentPadding: item.overlayBar.contentPadding,
         contentGap: item.overlayBar.contentGap,
-        contentItems: item.overlayBar.contentItems,
+        contentItems: this.hydrateProgrammingContentItems(
+          item.overlayBar.contentItems,
+          contentMediasById,
+        ),
         textContent: item.overlayBar.textContent,
         textColor: item.overlayBar.textColor,
         fontSize: item.overlayBar.fontSize,
@@ -1188,6 +1227,59 @@ export class DevicesService {
         },
       })),
     }));
+  }
+
+  private getContentImageMediaIds(value: Prisma.JsonValue | null) {
+    if (!Array.isArray(value)) {
+      return [];
+    }
+
+    return value.flatMap((candidate) => {
+      if (
+        !candidate ||
+        typeof candidate !== 'object' ||
+        Array.isArray(candidate) ||
+        candidate.type !== 'IMAGE' ||
+        typeof candidate.mediaId !== 'string'
+      ) {
+        return [];
+      }
+
+      return [candidate.mediaId];
+    });
+  }
+
+  private hydrateProgrammingContentItems(
+    value: Prisma.JsonValue | null,
+    mediasById: Map<string, ProgrammingContentMedia>,
+  ) {
+    if (!Array.isArray(value)) {
+      return value;
+    }
+
+    return value.map((candidate) => {
+      if (
+        !candidate ||
+        typeof candidate !== 'object' ||
+        Array.isArray(candidate) ||
+        candidate.type !== 'IMAGE' ||
+        typeof candidate.mediaId !== 'string'
+      ) {
+        return candidate;
+      }
+
+      const media = mediasById.get(candidate.mediaId);
+
+      return {
+        ...candidate,
+        media: media
+          ? {
+              ...media,
+              updatedAt: media.updatedAt.toISOString(),
+            }
+          : null,
+      };
+    });
   }
 
   private getLocalDateTime(date = new Date()) {

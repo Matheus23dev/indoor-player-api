@@ -55,6 +55,7 @@ export class OverlayBarsService {
       }
 
       await this.validateMedia(dto.mediaId, companyId);
+      await this.validateContentItemMedias(dto.contentItems, companyId);
       this.validateWeatherWidget(
         dto.widgetType,
         dto.weatherLocation,
@@ -139,6 +140,10 @@ export class OverlayBarsService {
 
       if (dto.mediaId !== undefined) {
         await this.validateMedia(dto.mediaId, companyId);
+      }
+
+      if (dto.contentItems !== undefined) {
+        await this.validateContentItemMedias(dto.contentItems, companyId);
       }
 
       this.validateWeatherWidget(
@@ -470,6 +475,46 @@ export class OverlayBarsService {
     return normalized ? normalized : null;
   }
 
+  private async validateContentItemMedias(
+    contentItems: OverlayBarContentItemDto[] | undefined,
+    companyId: string,
+  ) {
+    if (!contentItems) {
+      return;
+    }
+
+    const imageItems = contentItems.filter((item) => item.type === 'IMAGE');
+
+    if (imageItems.some((item) => !item.mediaId)) {
+      throw new BadRequestException(
+        'Selecione uma imagem para cada bloco de imagem da barra.',
+      );
+    }
+
+    const mediaIds = [
+      ...new Set(imageItems.map((item) => item.mediaId).filter(Boolean)),
+    ] as string[];
+
+    if (mediaIds.length === 0) {
+      return;
+    }
+
+    const validMedias = await this.prisma.media.findMany({
+      where: {
+        id: { in: mediaIds },
+        companyId,
+        type: MediaType.IMAGE,
+      },
+      select: { id: true },
+    });
+
+    if (validMedias.length !== mediaIds.length) {
+      throw new BadRequestException(
+        'Uma ou mais imagens dos blocos não pertencem à biblioteca da empresa.',
+      );
+    }
+  }
+
   private validateWeatherWidget(
     widgetType: string | undefined,
     weatherLocation: string | null | undefined,
@@ -496,9 +541,7 @@ export class OverlayBarsService {
   }
 
   private validateContentItems(
-    contentItems:
-      | Array<{ id: string; type: string; text?: string }>
-      | undefined,
+    contentItems: OverlayBarContentItemDto[] | undefined,
   ) {
     if (!contentItems) {
       return;
@@ -517,6 +560,11 @@ export class OverlayBarsService {
 
       if (item.type === 'TEXT' && !item.text?.trim()) {
         throw new BadRequestException('Preencha o texto do conteúdo da barra.');
+      }
+      if (item.type === 'IMAGE' && !item.mediaId) {
+        throw new BadRequestException(
+          'Selecione uma imagem para cada bloco de imagem da barra.',
+        );
       }
     }
   }
@@ -545,6 +593,11 @@ export class OverlayBarsService {
       paddingVertical: item.paddingVertical ?? 0,
       borderRadius: item.borderRadius,
       spacerSize: item.spacerSize,
+      ...(item.mediaId !== undefined ? { mediaId: item.mediaId } : {}),
+      imageSizePercent: item.imageSizePercent ?? 80,
+      fit: item.fit ?? 'CONTAIN',
+      offsetX: item.offsetX ?? 0,
+      offsetY: item.offsetY ?? 0,
     })) as Prisma.InputJsonValue | undefined;
   }
 

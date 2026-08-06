@@ -27,8 +27,8 @@ export class OverlayBarContentItemDto {
   @Length(1, 64)
   id!: string;
 
-  @IsIn(['TEXT', 'CLOCK', 'DATE', 'WEATHER', 'SPACER'])
-  type!: 'TEXT' | 'CLOCK' | 'DATE' | 'WEATHER' | 'SPACER';
+  @IsIn(['TEXT', 'CLOCK', 'DATE', 'WEATHER', 'IMAGE', 'SPACER'])
+  type!: 'TEXT' | 'CLOCK' | 'DATE' | 'WEATHER' | 'IMAGE' | 'SPACER';
 
   @IsOptional()
   @IsString()
@@ -89,6 +89,32 @@ export class OverlayBarContentItemDto {
   @Min(0)
   @Max(200)
   spacerSize!: number;
+
+  @IsOptional()
+  @IsUUID()
+  mediaId?: string | null;
+
+  @IsOptional()
+  @IsInt()
+  @Min(10)
+  @Max(100)
+  imageSizePercent?: number;
+
+  @IsOptional()
+  @IsEnum(OverlayBarFit)
+  fit?: OverlayBarFit;
+
+  @IsOptional()
+  @IsInt()
+  @Min(-120)
+  @Max(120)
+  offsetX?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(-120)
+  @Max(120)
+  offsetY?: number;
 }
 
 export class CreateOverlayBarDto {
