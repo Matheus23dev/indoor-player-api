@@ -68,6 +68,18 @@ export class OverlayBarContentItemDto {
   @Max(60)
   padding!: number;
 
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(60)
+  paddingHorizontal?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(60)
+  paddingVertical?: number;
+
   @IsInt()
   @Min(0)
   @Max(60)
@@ -110,6 +122,10 @@ export class CreateOverlayBarDto {
   @IsOptional()
   @IsEnum(OverlayBarContentPosition)
   contentPosition?: OverlayBarContentPosition;
+
+  @IsOptional()
+  @IsEnum(OverlayBarContentPosition)
+  contentAlignment?: OverlayBarContentPosition;
 
   @IsOptional()
   @IsInt()

@@ -1,0 +1,2 @@
+ALTER TABLE `OverlayBar`
+  ADD COLUMN `contentAlignment` ENUM('START', 'CENTER', 'END') NOT NULL DEFAULT 'CENTER';

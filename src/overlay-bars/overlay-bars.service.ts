@@ -72,6 +72,7 @@ export class OverlayBarsService {
           opacity: dto.opacity,
           fit: dto.fit,
           contentPosition: dto.contentPosition,
+          contentAlignment: dto.contentAlignment,
           imageSizePercent: dto.imageSizePercent,
           contentPadding: dto.contentPadding,
           contentGap: dto.contentGap,
@@ -167,6 +168,9 @@ export class OverlayBarsService {
         ...(dto.fit !== undefined ? { fit: dto.fit } : {}),
         ...(dto.contentPosition !== undefined
           ? { contentPosition: dto.contentPosition }
+          : {}),
+        ...(dto.contentAlignment !== undefined
+          ? { contentAlignment: dto.contentAlignment }
           : {}),
         ...(dto.imageSizePercent !== undefined
           ? { imageSizePercent: dto.imageSizePercent }
@@ -537,6 +541,8 @@ export class OverlayBarsService {
         ? { backgroundColor: item.backgroundColor }
         : {}),
       padding: item.padding,
+      paddingHorizontal: item.paddingHorizontal ?? item.padding,
+      paddingVertical: item.paddingVertical ?? 0,
       borderRadius: item.borderRadius,
       spacerSize: item.spacerSize,
     })) as Prisma.InputJsonValue | undefined;

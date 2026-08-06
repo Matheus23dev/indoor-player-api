@@ -156,6 +156,7 @@
     opacity         Int                @default(100)
     fit             OverlayBarFit      @default(CONTAIN)
     contentPosition OverlayBarContentPosition @default(CENTER)
+    contentAlignment OverlayBarContentPosition @default(CENTER)
     imageSizePercent Int               @default(80)
     contentPadding  Int                @default(6)
     contentGap      Int                @default(8)
