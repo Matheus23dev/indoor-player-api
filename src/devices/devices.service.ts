@@ -33,6 +33,53 @@ const devicePreviewInclude = {
       id: true,
       name: true,
       orientation: true,
+      overlayBars: {
+        orderBy: {
+          order: 'asc',
+        },
+        select: {
+          order: true,
+          overlayBar: {
+            select: {
+              id: true,
+              name: true,
+              position: true,
+              sizePercent: true,
+              backgroundColor: true,
+              opacity: true,
+              fit: true,
+              contentPosition: true,
+              contentAlignment: true,
+              imageSizePercent: true,
+              contentPadding: true,
+              contentGap: true,
+              contentItems: true,
+              textContent: true,
+              textColor: true,
+              fontSize: true,
+              widgetType: true,
+              weatherLocation: true,
+              companyId: true,
+              mediaId: true,
+              createdAt: true,
+              updatedAt: true,
+              media: {
+                select: {
+                  id: true,
+                  name: true,
+                  type: true,
+                  fileUrl: true,
+                  fileSize: true,
+                  duration: true,
+                  companyId: true,
+                  createdAt: true,
+                  updatedAt: true,
+                },
+              },
+            },
+          },
+        },
+      },
     },
   },
   currentPlaylistItem: {
@@ -74,6 +121,8 @@ const programmingContentMediaSelect = {
   fileUrl: true,
   fileSize: true,
   duration: true,
+  companyId: true,
+  createdAt: true,
   updatedAt: true,
 } satisfies Prisma.MediaSelect;
 const programmingScheduleSelect = {
@@ -317,16 +366,19 @@ export class DevicesService {
       if (devices.length === 0) {
         return [];
       }
-      const schedules = await this.prisma.schedule.findMany({
-        where: {
-          companyId,
-          deviceId: {
-            in: devices.map((device) => device.id),
+      const [schedules, contentMediasById] = await Promise.all([
+        this.prisma.schedule.findMany({
+          where: {
+            companyId,
+            deviceId: {
+              in: devices.map((device) => device.id),
+            },
+            active: true,
           },
-          active: true,
-        },
-        select: schedulePreviewSelect,
-      });
+          select: schedulePreviewSelect,
+        }),
+        this.getDevicePreviewContentMedias(devices, companyId),
+      ]);
       const schedulesByDevice = new Map<string, SchedulePreview[]>();
       schedules.forEach((schedule) => {
         const current = schedulesByDevice.get(schedule.deviceId) ?? [];
@@ -338,7 +390,12 @@ export class DevicesService {
           schedulesByDevice.get(device.id) ?? [],
           now,
         );
-        return this.buildDeviceResponse(device, activeSchedule, now);
+        return this.buildDeviceResponse(
+          device,
+          activeSchedule,
+          now,
+          contentMediasById,
+        );
       });
     } catch {
       throw new InternalServerErrorException('Erro ao listar dispositivos.');
@@ -871,18 +928,26 @@ export class DevicesService {
           'Dispositivo não encontrado ou não pertence a esta conta.',
         );
       }
-      const schedules = await this.prisma.schedule.findMany({
-        where: {
-          companyId,
-          deviceId,
-          active: true,
-        },
-        select: schedulePreviewSelect,
-      });
+      const [schedules, contentMediasById] = await Promise.all([
+        this.prisma.schedule.findMany({
+          where: {
+            companyId,
+            deviceId,
+            active: true,
+          },
+          select: schedulePreviewSelect,
+        }),
+        this.getDevicePreviewContentMedias([device], companyId),
+      ]);
       const activeSchedule = this.selectActiveSchedule<
         (typeof schedules)[number]
       >(schedules, now);
-      return this.buildDeviceResponse(device, activeSchedule, now);
+      return this.buildDeviceResponse(
+        device,
+        activeSchedule,
+        now,
+        contentMediasById,
+      );
     } catch (error) {
       if (error instanceof HttpException) {
         throw error;
@@ -932,6 +997,7 @@ export class DevicesService {
     device: DeviceWithPreviewRelations,
     activeSchedule: SchedulePreview | null,
     now: Date,
+    contentMediasById: Map<string, ProgrammingContentMedia>,
   ) {
     const status = this.getDeviceStatus(device.lastHeartbeat, now);
     const duration =
@@ -977,6 +1043,42 @@ export class DevicesService {
           ? {
               id: device.currentPlaylist.id,
               name: device.currentPlaylist.name,
+              orientation: device.currentPlaylist.orientation,
+              bars: device.currentPlaylist.overlayBars.map((item) => ({
+                id: item.overlayBar.id,
+                name: item.overlayBar.name,
+                position: item.overlayBar.position,
+                sizePercent: item.overlayBar.sizePercent,
+                backgroundColor: item.overlayBar.backgroundColor,
+                opacity: item.overlayBar.opacity,
+                fit: item.overlayBar.fit,
+                contentPosition: item.overlayBar.contentPosition,
+                contentAlignment: item.overlayBar.contentAlignment,
+                imageSizePercent: item.overlayBar.imageSizePercent,
+                contentPadding: item.overlayBar.contentPadding,
+                contentGap: item.overlayBar.contentGap,
+                contentItems: this.hydrateProgrammingContentItems(
+                  item.overlayBar.contentItems,
+                  contentMediasById,
+                ),
+                textContent: item.overlayBar.textContent,
+                textColor: item.overlayBar.textColor,
+                fontSize: item.overlayBar.fontSize,
+                widgetType: item.overlayBar.widgetType,
+                weatherLocation: item.overlayBar.weatherLocation,
+                companyId: item.overlayBar.companyId,
+                mediaId: item.overlayBar.mediaId,
+                createdAt: item.overlayBar.createdAt.toISOString(),
+                updatedAt: item.overlayBar.updatedAt.toISOString(),
+                order: item.order,
+                media: item.overlayBar.media
+                  ? {
+                      ...item.overlayBar.media,
+                      createdAt: item.overlayBar.media.createdAt.toISOString(),
+                      updatedAt: item.overlayBar.media.updatedAt.toISOString(),
+                    }
+                  : null,
+              })),
             }
           : null,
         item: device.currentPlaylistItem
@@ -1229,6 +1331,33 @@ export class DevicesService {
     }));
   }
 
+  private async getDevicePreviewContentMedias(
+    devices: DeviceWithPreviewRelations[],
+    companyId: string,
+  ) {
+    const contentMediaIds = [
+      ...new Set(
+        devices.flatMap((device) =>
+          (device.currentPlaylist?.overlayBars ?? []).flatMap((item) =>
+            this.getContentImageMediaIds(item.overlayBar.contentItems),
+          ),
+        ),
+      ),
+    ];
+    const contentMedias = contentMediaIds.length
+      ? await this.prisma.media.findMany({
+          where: {
+            id: { in: contentMediaIds },
+            type: MediaType.IMAGE,
+            companyId,
+          },
+          select: programmingContentMediaSelect,
+        })
+      : [];
+
+    return new Map(contentMedias.map((media) => [media.id, media]));
+  }
+
   private getContentImageMediaIds(value: Prisma.JsonValue | null) {
     if (!Array.isArray(value)) {
       return [];
@@ -1275,6 +1404,7 @@ export class DevicesService {
         media: media
           ? {
               ...media,
+              createdAt: media.createdAt.toISOString(),
               updatedAt: media.updatedAt.toISOString(),
             }
           : null,
