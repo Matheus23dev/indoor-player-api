@@ -29,7 +29,7 @@ interface DeviceSocketData {
 type DeviceSocket = Socket<any, any, any, DeviceSocketData>;
 type DeviceServer = Server<any, any, any, DeviceSocketData>;
 
-const CONNECTION_LOST_GRACE_MS = 10_000;
+const CONNECTION_LOST_GRACE_MS = 60_000;
 
 export type ProgrammingChangeReason =
   | 'SCHEDULE_CREATED'
@@ -165,13 +165,21 @@ export class DevicesGateway
         return;
       }
 
+      const confirmedAt = new Date();
+
       this.connectionLostAt.set(deviceId, disconnectedAt);
 
       void this.persistSystemEvent(deviceId, {
         event: 'PLAYER_CONNECTION_LOST',
         level: 'WARNING',
-        message: 'O Player perdeu a conexão.',
-        occurredAt: disconnectedAt,
+        message:
+          'O Player perdeu a conexão após permanecer inativo por pelo menos 1 minuto.',
+        metadata: {
+          offlineSeconds: Math.round(
+            (confirmedAt.getTime() - disconnectedAt.getTime()) / 1_000,
+          ),
+        },
+        occurredAt: confirmedAt,
       });
     }, CONNECTION_LOST_GRACE_MS);
 

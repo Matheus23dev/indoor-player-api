@@ -48,13 +48,18 @@ describe('DevicesGateway connection history', () => {
       gateway.handleConnection(firstSocket);
       gateway.handleDisconnect(firstSocket);
 
-      await jest.advanceTimersByTimeAsync(10_000);
+      await jest.advanceTimersByTimeAsync(60_000);
 
       expect(deviceLogCreate).toHaveBeenCalledTimes(1);
       expect(readStoredEvent(0)).toMatchObject({
         source: 'SYSTEM',
         event: 'PLAYER_CONNECTION_LOST',
         level: 'WARNING',
+        message:
+          'O Player perdeu a conexão após permanecer inativo por pelo menos 1 minuto.',
+        metadata: {
+          offlineSeconds: 60,
+        },
       });
 
       await jest.advanceTimersByTimeAsync(5_000);
@@ -66,7 +71,7 @@ describe('DevicesGateway connection history', () => {
         event: 'PLAYER_CONNECTION_RESTORED',
         level: 'SUCCESS',
         metadata: {
-          offlineSeconds: 15,
+          offlineSeconds: 65,
         },
       });
     } finally {
@@ -84,7 +89,7 @@ describe('DevicesGateway connection history', () => {
       gateway.handleConnection(firstSocket);
       gateway.handleDisconnect(firstSocket);
 
-      await jest.advanceTimersByTimeAsync(9_000);
+      await jest.advanceTimersByTimeAsync(59_000);
       gateway.handleConnection(createAuthenticatedSocket('socket-2'));
       await jest.advanceTimersByTimeAsync(2_000);
 

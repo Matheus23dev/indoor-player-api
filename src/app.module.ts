@@ -17,6 +17,7 @@ import { FoldersModule } from './folders/folders.module';
 import { OverlayBarsModule } from './overlay-bars/overlay-bars.module';
 import { WeatherModule } from './weather/weather.module';
 import { getMediaPublicPath, getMediaStoragePath } from './config/environment';
+import { AuditLogsModule } from './audit-logs/audit-logs.module';
 
 @Module({
   imports: [
@@ -59,6 +60,7 @@ import { getMediaPublicPath, getMediaStoragePath } from './config/environment';
     FoldersModule,
     OverlayBarsModule,
     WeatherModule,
+    AuditLogsModule,
   ],
 
   controllers: [AppController],

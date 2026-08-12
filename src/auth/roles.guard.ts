@@ -44,7 +44,7 @@ export class RolesGuard implements CanActivate {
 
     if (!hasPermission) {
       throw new ForbiddenException(
-        'Você não possui permissão para gerenciar usuários.',
+        'Você não possui permissão para acessar este recurso.',
       );
     }
 
