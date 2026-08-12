@@ -20,7 +20,7 @@ export class AuditLogsService {
 
     if (from && to && from.getTime() > to.getTime()) {
       throw new BadRequestException(
-        'A data inicial nÃ£o pode ser posterior Ã  data final.',
+        'A data inicial não pode ser posterior à data final.',
       );
     }
 

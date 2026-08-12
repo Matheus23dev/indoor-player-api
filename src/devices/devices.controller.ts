@@ -11,10 +11,13 @@ import {
 } from '@nestjs/common';
 
 import type { Request } from 'express';
+import { UserRole } from '@prisma/client';
 
 import { DevicesService } from './devices.service';
 
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { Roles } from '../auth/decorators/roles.decorators';
+import { RolesGuard } from '../auth/roles.guard';
 
 import {
   DeviceAuthGuard,
@@ -31,6 +34,7 @@ import type { DeviceAuditActor } from './device-audit';
 interface AuthenticatedRequest extends Request {
   user: DeviceAuditActor & {
     companyId: string;
+    role: UserRole;
   };
 }
 
@@ -138,7 +142,8 @@ export class DevicesController {
   }
 
   @Get(':id/logs')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.OWNER, UserRole.ADMIN)
   logs(
     @Param('id')
     id: string,

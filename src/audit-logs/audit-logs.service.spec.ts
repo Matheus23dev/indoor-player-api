@@ -33,7 +33,7 @@ describe('AuditLogsService', () => {
         createdAt: new Date('2026-08-12T12:00:00.000Z'),
         device: {
           id: '11111111-1111-4111-8111-111111111111',
-          name: 'TV recepÃ§Ã£o',
+          name: 'TV recepção',
           code: 'ABC123',
         },
       },
@@ -42,7 +42,7 @@ describe('AuditLogsService', () => {
     deviceFindMany.mockResolvedValue([
       {
         id: '11111111-1111-4111-8111-111111111111',
-        name: 'TV recepÃ§Ã£o',
+        name: 'TV recepção',
         code: 'ABC123',
       },
     ]);
@@ -55,7 +55,7 @@ describe('AuditLogsService', () => {
       limit: 10,
       source: AuditLogSource.SYSTEM,
       deviceId: '11111111-1111-4111-8111-111111111111',
-      search: 'recepÃ§Ã£o',
+      search: 'recepção',
       from: '2026-08-01T00:00:00.000Z',
       to: '2026-08-12T23:59:59.999Z',
     });
