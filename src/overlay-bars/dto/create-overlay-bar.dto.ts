@@ -97,7 +97,7 @@ export class OverlayBarContentItemDto {
   @IsOptional()
   @IsInt()
   @Min(10)
-  @Max(100)
+  @Max(300)
   imageSizePercent?: number;
 
   @IsOptional()
@@ -156,7 +156,7 @@ export class CreateOverlayBarDto {
   @IsOptional()
   @IsInt()
   @Min(10)
-  @Max(100)
+  @Max(300)
   imageSizePercent?: number;
 
   @IsOptional()

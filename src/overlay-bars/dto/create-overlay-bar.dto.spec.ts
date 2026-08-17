@@ -39,4 +39,25 @@ describe('OverlayBarContentItemDto', () => {
 
     expect(errors.some((error) => error.property === 'offsetY')).toBe(true);
   });
+
+  it('aceita ampliar a imagem até trezentos por cento', async () => {
+    const dto = plainToInstance(OverlayBarContentItemDto, {
+      ...imageItem,
+      imageSizePercent: 300,
+    });
+
+    await expect(validate(dto)).resolves.toHaveLength(0);
+  });
+
+  it('rejeita imagem maior que o limite editável', async () => {
+    const dto = plainToInstance(OverlayBarContentItemDto, {
+      ...imageItem,
+      imageSizePercent: 301,
+    });
+    const errors = await validate(dto);
+
+    expect(errors.some((error) => error.property === 'imageSizePercent')).toBe(
+      true,
+    );
+  });
 });
