@@ -40,10 +40,10 @@ describe('OverlayBarContentItemDto', () => {
     expect(errors.some((error) => error.property === 'offsetY')).toBe(true);
   });
 
-  it('aceita ampliar a imagem até trezentos por cento', async () => {
+  it('aceita ampliar a imagem até seiscentos por cento', async () => {
     const dto = plainToInstance(OverlayBarContentItemDto, {
       ...imageItem,
-      imageSizePercent: 300,
+      imageSizePercent: 600,
     });
 
     await expect(validate(dto)).resolves.toHaveLength(0);
@@ -52,7 +52,7 @@ describe('OverlayBarContentItemDto', () => {
   it('rejeita imagem maior que o limite editável', async () => {
     const dto = plainToInstance(OverlayBarContentItemDto, {
       ...imageItem,
-      imageSizePercent: 301,
+      imageSizePercent: 601,
     });
     const errors = await validate(dto);
 
