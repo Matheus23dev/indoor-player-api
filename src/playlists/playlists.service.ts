@@ -256,10 +256,16 @@ export class PlaylistsService {
         );
       }
 
+      if (media.type === 'VIDEO' && dto.duration !== undefined) {
+        throw new BadRequestException(
+          'A duração pode ser configurada somente para imagens.',
+        );
+      }
+
       const duration =
         media.type === 'IMAGE'
           ? (dto.duration ?? media.duration ?? 5)
-          : (dto.duration ?? media.duration ?? null);
+          : (media.duration ?? null);
 
       const createdItem = await this.prisma.$transaction(
         async (tx) => {
@@ -547,6 +553,12 @@ export class PlaylistsService {
       if (muted !== undefined && item.media.type !== 'VIDEO') {
         throw new BadRequestException(
           'A configuração de áudio está disponível somente para vídeos.',
+        );
+      }
+
+      if (duration !== undefined && item.media.type !== 'IMAGE') {
+        throw new BadRequestException(
+          'A duração pode ser alterada somente para imagens.',
         );
       }
 

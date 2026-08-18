@@ -116,6 +116,33 @@ describe('PlaylistsService.updateItem', () => {
     expect(subject.notifyPlaylistChanged).not.toHaveBeenCalled();
   });
 
+  it('allows changing duration only for images', async () => {
+    const videoSubject = createSubject('VIDEO');
+
+    await expect(
+      videoSubject.service.updateItem(
+        itemId,
+        { duration: 12 },
+        companyId,
+        actor,
+      ),
+    ).rejects.toThrow('A duração pode ser alterada somente para imagens.');
+    expect(videoSubject.updateItem).not.toHaveBeenCalled();
+
+    const imageSubject = createSubject('IMAGE');
+
+    await imageSubject.service.updateItem(
+      itemId,
+      { duration: 12 },
+      companyId,
+      actor,
+    );
+
+    expect(imageSubject.updateItem).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { duration: 12 } }),
+    );
+  });
+
   it('rejects an empty update', async () => {
     const subject = createSubject();
 
@@ -187,6 +214,16 @@ describe('PlaylistsService.addItem', () => {
       }),
     );
     expect(result).toEqual(expect.objectContaining({ muted: true }));
+
+    await expect(
+      service.addItem(
+        playlistId,
+        'company-1',
+        { mediaId, duration: 10 },
+        { id: 'admin-1', name: 'Maria' },
+      ),
+    ).rejects.toThrow('A duração pode ser configurada somente para imagens.');
+    expect(createItem).toHaveBeenCalledTimes(1);
   });
 });
 
