@@ -4,6 +4,7 @@ import {
   Injectable,
   InternalServerErrorException,
   NotFoundException,
+  OnApplicationBootstrap,
 } from '@nestjs/common';
 import { MediaType } from '@prisma/client';
 
@@ -19,10 +20,25 @@ import { getMediaStoragePath } from '../config/environment';
 import { compactPlaylistItemOrder } from '../playlists/playlist-item-order';
 
 const execFileAsync = promisify(execFile);
+const VIDEO_METADATA_PROBE_CONCURRENCY = 4;
+
+interface VideoMetadata {
+  duration: number;
+  hasAudio: boolean;
+}
 
 @Injectable()
-export class MediasService {
+export class MediasService implements OnApplicationBootstrap {
   constructor(private readonly prisma: PrismaService) {}
+
+  onApplicationBootstrap() {
+    void this.backfillMissingVideoMetadata().catch((error: unknown) => {
+      console.error(
+        '[MEDIAS] Não foi possível atualizar os metadados dos vídeos antigos:',
+        error,
+      );
+    });
+  }
 
   async upload(
     file: Express.Multer.File,
@@ -42,9 +58,9 @@ export class MediasService {
         await this.validateFolder(folderId, companyId);
       }
 
-      const duration =
+      const videoMetadata =
         mediaType === MediaType.VIDEO
-          ? await this.getVideoDuration(filePath)
+          ? await this.getVideoMetadata(filePath)
           : null;
 
       return await this.prisma.media.create({
@@ -53,7 +69,8 @@ export class MediasService {
           type: mediaType,
           fileUrl: file.filename,
           fileSize: file.size,
-          duration,
+          duration: videoMetadata?.duration ?? null,
+          hasAudio: videoMetadata?.hasAudio ?? null,
           companyId,
           folderId: folderId || null,
         },
@@ -79,7 +96,7 @@ export class MediasService {
 
   async list(companyId: string) {
     try {
-      return await this.prisma.media.findMany({
+      const medias = await this.prisma.media.findMany({
         where: {
           companyId,
         },
@@ -98,6 +115,10 @@ export class MediasService {
           createdAt: 'desc',
         },
       });
+
+      await this.refreshMissingVideoMetadata(medias);
+
+      return medias;
     } catch (error) {
       console.error('[MEDIAS] Erro ao listar:', error);
 
@@ -223,7 +244,7 @@ export class MediasService {
     );
   }
 
-  private async getVideoDuration(filePath: string) {
+  private async getVideoMetadata(filePath: string): Promise<VideoMetadata> {
     try {
       const { stdout } = await execFileAsync(
         ffprobePath,
@@ -232,10 +253,10 @@ export class MediasService {
           'error',
 
           '-show_entries',
-          'format=duration',
+          'format=duration:stream=codec_type',
 
           '-of',
-          'default=noprint_wrappers=1:nokey=1',
+          'json',
 
           filePath,
         ],
@@ -246,13 +267,22 @@ export class MediasService {
         },
       );
 
-      const duration = Number.parseFloat(stdout.trim());
+      const probe = JSON.parse(stdout) as {
+        format?: { duration?: string };
+        streams?: Array<{ codec_type?: string }>;
+      };
+      const duration = Number.parseFloat(probe.format?.duration ?? '');
 
       if (!Number.isFinite(duration) || duration <= 0) {
         throw new Error('Duração inválida retornada pelo ffprobe.');
       }
 
-      return Math.ceil(duration);
+      return {
+        duration: Math.ceil(duration),
+        hasAudio:
+          probe.streams?.some((stream) => stream.codec_type === 'audio') ??
+          false,
+      };
     } catch (error) {
       console.error('[MEDIAS] Erro ao identificar duração:', error);
 
@@ -260,6 +290,82 @@ export class MediasService {
         'Não foi possível identificar a duração do vídeo.',
       );
     }
+  }
+
+  private async refreshMissingVideoMetadata(
+    medias: Array<{
+      id: string;
+      name: string;
+      type: MediaType;
+      fileUrl: string;
+      duration: number | null;
+      hasAudio: boolean | null;
+    }>,
+  ) {
+    const pendingMedias = medias.filter(
+      (media) => media.type === MediaType.VIDEO && media.hasAudio === null,
+    );
+
+    for (
+      let index = 0;
+      index < pendingMedias.length;
+      index += VIDEO_METADATA_PROBE_CONCURRENCY
+    ) {
+      const batch = pendingMedias.slice(
+        index,
+        index + VIDEO_METADATA_PROBE_CONCURRENCY,
+      );
+
+      await Promise.all(
+        batch.map(async (media) => {
+          try {
+            const metadata = await this.getVideoMetadata(
+              this.getPathFromFileUrl(media.fileUrl),
+            );
+            const duration = media.duration ?? metadata.duration;
+
+            await this.prisma.media.update({
+              where: { id: media.id },
+              data: {
+                duration,
+                hasAudio: metadata.hasAudio,
+              },
+            });
+
+            media.duration = duration;
+            media.hasAudio = metadata.hasAudio;
+          } catch (error: unknown) {
+            console.error(
+              '[MEDIAS] Não foi possível atualizar os metadados do vídeo:',
+              {
+                mediaId: media.id,
+                mediaName: media.name,
+                error,
+              },
+            );
+          }
+        }),
+      );
+    }
+  }
+
+  private async backfillMissingVideoMetadata() {
+    const medias = await this.prisma.media.findMany({
+      where: {
+        type: MediaType.VIDEO,
+        hasAudio: null,
+      },
+      select: {
+        id: true,
+        name: true,
+        type: true,
+        fileUrl: true,
+        duration: true,
+        hasAudio: true,
+      },
+    });
+
+    await this.refreshMissingVideoMetadata(medias);
   }
 
   private getUploadedFilePath(file?: Express.Multer.File) {

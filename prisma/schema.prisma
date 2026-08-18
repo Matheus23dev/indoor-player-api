@@ -96,6 +96,7 @@
     fileUrl   String
     fileSize  Int?
     duration  Int?
+    hasAudio Boolean?
     companyId String
     createdAt DateTime  @default(now())
     updatedAt DateTime  @updatedAt

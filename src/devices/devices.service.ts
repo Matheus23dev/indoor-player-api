@@ -203,6 +203,7 @@ const programmingScheduleSelect = {
               fileUrl: true,
               fileSize: true,
               duration: true,
+              hasAudio: true,
               updatedAt: true,
             },
           },
@@ -1317,7 +1318,7 @@ export class DevicesService {
         id: item.id,
         order: item.order,
         duration: item.duration,
-        muted: item.muted,
+        muted: item.media.hasAudio === false ? true : item.muted,
         media: {
           id: item.media.id,
           name: item.media.name,

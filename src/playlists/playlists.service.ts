@@ -285,6 +285,7 @@ export class PlaylistsService {
               mediaId: dto.mediaId,
               order: nextOrder,
               duration,
+              muted: media.type === 'VIDEO' && media.hasAudio === false,
             },
 
             include: {
@@ -533,6 +534,7 @@ export class PlaylistsService {
               id: true,
               name: true,
               type: true,
+              hasAudio: true,
             },
           },
         },
@@ -545,6 +547,12 @@ export class PlaylistsService {
       if (muted !== undefined && item.media.type !== 'VIDEO') {
         throw new BadRequestException(
           'A configuração de áudio está disponível somente para vídeos.',
+        );
+      }
+
+      if (muted === false && item.media.hasAudio === false) {
+        throw new BadRequestException(
+          'Este vídeo não possui faixa de áudio para ser ativada.',
         );
       }
 

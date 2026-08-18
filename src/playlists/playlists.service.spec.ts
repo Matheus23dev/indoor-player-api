@@ -10,12 +10,20 @@ describe('PlaylistsService.updateItem', () => {
   const itemId = 'item-1';
   const actor = { id: 'admin-1', name: 'Maria' };
 
-  function createSubject(mediaType: 'VIDEO' | 'IMAGE' = 'VIDEO') {
+  function createSubject(
+    mediaType: 'VIDEO' | 'IMAGE' = 'VIDEO',
+    hasAudio: boolean | null = true,
+  ) {
     const findFirst = jest.fn().mockResolvedValue({
       id: itemId,
       playlistId,
       playlist: { name: 'Institucional' },
-      media: { id: 'media-1', name: 'Abertura.mp4', type: mediaType },
+      media: {
+        id: 'media-1',
+        name: 'Abertura.mp4',
+        type: mediaType,
+        hasAudio,
+      },
     });
     const updateItem = jest.fn().mockImplementation(({ data }) =>
       Promise.resolve({
@@ -98,6 +106,16 @@ describe('PlaylistsService.updateItem', () => {
     expect(subject.notifyPlaylistChanged).not.toHaveBeenCalled();
   });
 
+  it('rejects enabling audio when the video has no audio track', async () => {
+    const subject = createSubject('VIDEO', false);
+
+    await expect(
+      subject.service.updateItem(itemId, { muted: false }, companyId, actor),
+    ).rejects.toThrow('Este vídeo não possui faixa de áudio para ser ativada.');
+    expect(subject.updateItem).not.toHaveBeenCalled();
+    expect(subject.notifyPlaylistChanged).not.toHaveBeenCalled();
+  });
+
   it('rejects an empty update', async () => {
     const subject = createSubject();
 
@@ -105,6 +123,70 @@ describe('PlaylistsService.updateItem', () => {
       subject.service.updateItem(itemId, {}, companyId, actor),
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(subject.findFirst).not.toHaveBeenCalled();
+  });
+});
+
+describe('PlaylistsService.addItem', () => {
+  it('creates a video without an audio track already muted', async () => {
+    const playlistId = 'playlist-1';
+    const mediaId = 'media-1';
+    const createItem = jest.fn().mockImplementation(({ data }) =>
+      Promise.resolve({
+        id: 'item-1',
+        ...data,
+        media: {
+          id: mediaId,
+          name: 'Vídeo silencioso.mp4',
+          type: 'VIDEO',
+          hasAudio: false,
+        },
+      }),
+    );
+    const prisma = {
+      playlist: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: playlistId,
+          name: 'Institucional',
+        }),
+      },
+      media: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: mediaId,
+          name: 'Vídeo silencioso.mp4',
+          type: 'VIDEO',
+          duration: 20,
+          hasAudio: false,
+        }),
+      },
+      schedule: { findMany: jest.fn().mockResolvedValue([]) },
+      $transaction: jest.fn().mockImplementation(async (callback) =>
+        callback({
+          playlistItem: {
+            findFirst: jest.fn().mockResolvedValue(null),
+            create: createItem,
+          },
+          playlist: { update: jest.fn().mockResolvedValue({ id: playlistId }) },
+        }),
+      ),
+    } as unknown as PrismaService;
+    const gateway = {
+      notifyPlaylistChanged: jest.fn().mockResolvedValue(undefined),
+    } as unknown as DevicesGateway;
+    const service = new PlaylistsService(prisma, gateway);
+
+    const result = await service.addItem(
+      playlistId,
+      'company-1',
+      { mediaId },
+      { id: 'admin-1', name: 'Maria' },
+    );
+
+    expect(createItem).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ muted: true }),
+      }),
+    );
+    expect(result).toEqual(expect.objectContaining({ muted: true }));
   });
 });
 
