@@ -10,6 +10,15 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
+import {
+  ApiBadRequestResponse,
+  ApiConflictResponse,
+  ApiCreatedResponse,
+  ApiNotFoundResponse,
+  ApiOkResponse,
+  ApiOperation,
+  ApiTags,
+} from '@nestjs/swagger';
 
 import { Request } from 'express';
 
@@ -26,6 +35,17 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 
 import { Roles } from '../auth/decorators/roles.decorators';
+import {
+  ApiRestrictedRoles,
+  ApiServerError,
+  ApiUserAuthentication,
+  ApiUuidParameter,
+} from '../swagger/swagger.decorators';
+import {
+  ApiErrorResponseDto,
+  SuccessMessageResponseDto,
+  UserResponseDto,
+} from '../swagger/swagger.models';
 
 interface AuthenticatedRequest extends Request {
   user: {
@@ -37,11 +57,17 @@ interface AuthenticatedRequest extends Request {
 
 @Controller('users')
 @UseGuards(JwtAuthGuard, RolesGuard)
+@ApiTags('Usuários')
+@ApiUserAuthentication()
+@ApiServerError()
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
   @Get('me')
   @Roles(UserRole.OWNER, UserRole.ADMIN, UserRole.OPERATOR)
+  @ApiOperation({ summary: 'Consultar o usuário autenticado' })
+  @ApiOkResponse({ type: UserResponseDto })
+  @ApiNotFoundResponse({ type: ApiErrorResponseDto })
   getMe(
     @Req()
     req: AuthenticatedRequest,
@@ -51,6 +77,15 @@ export class UsersController {
 
   @Post()
   @Roles(UserRole.OWNER, UserRole.ADMIN)
+  @ApiOperation({
+    summary: 'Criar um usuário na empresa',
+    description:
+      'OWNER pode criar ADMIN ou OPERATOR. ADMIN pode criar somente OPERATOR.',
+  })
+  @ApiRestrictedRoles([UserRole.OWNER, UserRole.ADMIN])
+  @ApiCreatedResponse({ type: UserResponseDto })
+  @ApiBadRequestResponse({ type: ApiErrorResponseDto })
+  @ApiConflictResponse({ type: ApiErrorResponseDto })
   create(
     @Body()
     createUserDto: CreateUserDto,
@@ -67,6 +102,9 @@ export class UsersController {
 
   @Get()
   @Roles(UserRole.OWNER, UserRole.ADMIN)
+  @ApiOperation({ summary: 'Listar os usuários da empresa' })
+  @ApiRestrictedRoles([UserRole.OWNER, UserRole.ADMIN])
+  @ApiOkResponse({ type: UserResponseDto, isArray: true })
   list(
     @Req()
     req: AuthenticatedRequest,
@@ -76,6 +114,11 @@ export class UsersController {
 
   @Get(':id')
   @Roles(UserRole.OWNER, UserRole.ADMIN)
+  @ApiOperation({ summary: 'Consultar um usuário da empresa' })
+  @ApiRestrictedRoles([UserRole.OWNER, UserRole.ADMIN])
+  @ApiUuidParameter('id', 'Identificador do usuário.')
+  @ApiOkResponse({ type: UserResponseDto })
+  @ApiNotFoundResponse({ type: ApiErrorResponseDto })
   findById(
     @Param(
       'id',
@@ -93,6 +136,17 @@ export class UsersController {
 
   @Patch(':id')
   @Roles(UserRole.OWNER, UserRole.ADMIN)
+  @ApiOperation({
+    summary: 'Atualizar um usuário da empresa',
+    description:
+      'As regras de hierarquia impedem alterações indevidas entre perfis.',
+  })
+  @ApiRestrictedRoles([UserRole.OWNER, UserRole.ADMIN])
+  @ApiUuidParameter('id', 'Identificador do usuário.')
+  @ApiOkResponse({ type: UserResponseDto })
+  @ApiBadRequestResponse({ type: ApiErrorResponseDto })
+  @ApiNotFoundResponse({ type: ApiErrorResponseDto })
+  @ApiConflictResponse({ type: ApiErrorResponseDto })
   update(
     @Param(
       'id',
@@ -119,6 +173,12 @@ export class UsersController {
 
   @Delete(':id')
   @Roles(UserRole.OWNER, UserRole.ADMIN)
+  @ApiOperation({ summary: 'Excluir um usuário da empresa' })
+  @ApiRestrictedRoles([UserRole.OWNER, UserRole.ADMIN])
+  @ApiUuidParameter('id', 'Identificador do usuário.')
+  @ApiOkResponse({ type: SuccessMessageResponseDto })
+  @ApiBadRequestResponse({ type: ApiErrorResponseDto })
+  @ApiNotFoundResponse({ type: ApiErrorResponseDto })
   remove(
     @Param(
       'id',

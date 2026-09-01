@@ -9,8 +9,10 @@ import {
   Matches,
   Min,
 } from 'class-validator';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class CreateScheduleDto {
+  @ApiProperty({ example: 'Horário comercial' })
   @IsString({
     message: 'O nome deve ser um texto válido.',
   })
@@ -19,6 +21,7 @@ export class CreateScheduleDto {
   })
   name!: string;
 
+  @ApiProperty({ format: 'uuid', description: 'Player pertencente à empresa.' })
   @IsUUID('4', {
     message: 'O ID do player deve ser um UUID válido.',
   })
@@ -27,6 +30,10 @@ export class CreateScheduleDto {
   })
   deviceId!: string;
 
+  @ApiProperty({
+    format: 'uuid',
+    description: 'Playlist pertencente à empresa.',
+  })
   @IsUUID('4', {
     message: 'O ID da playlist deve ser um UUID válido.',
   })
@@ -35,6 +42,7 @@ export class CreateScheduleDto {
   })
   playlistId!: string;
 
+  @ApiProperty({ format: 'date', example: '2026-08-01' })
   @IsDateString(
     {},
     {
@@ -46,6 +54,7 @@ export class CreateScheduleDto {
   })
   startDate!: string;
 
+  @ApiProperty({ format: 'date', example: '2026-12-31' })
   @IsDateString(
     {},
     {
@@ -57,6 +66,7 @@ export class CreateScheduleDto {
   })
   endDate!: string;
 
+  @ApiProperty({ pattern: '^([01]\\d|2[0-3]):[0-5]\\d$', example: '08:00' })
   @IsString({
     message: 'O horário de início deve ser um texto válido.',
   })
@@ -68,6 +78,7 @@ export class CreateScheduleDto {
   })
   startTime!: string;
 
+  @ApiProperty({ pattern: '^([01]\\d|2[0-3]):[0-5]\\d$', example: '18:00' })
   @IsString({
     message: 'O horário de término deve ser um texto válido.',
   })
@@ -79,6 +90,11 @@ export class CreateScheduleDto {
   })
   endTime!: string;
 
+  @ApiProperty({
+    pattern: '^[0-6](\\s*,\\s*[0-6])*$',
+    example: '1,2,3,4,5',
+    description: 'Dias da semana: 0 para domingo até 6 para sábado.',
+  })
   @IsString({
     message: 'Os dias da semana devem ser uma string válida.',
   })
@@ -91,6 +107,7 @@ export class CreateScheduleDto {
   })
   daysOfWeek!: string;
 
+  @ApiPropertyOptional({ minimum: 1, default: 1, example: 1 })
   @IsInt({
     message: 'A prioridade deve ser um número inteiro.',
   })
@@ -100,6 +117,7 @@ export class CreateScheduleDto {
   @IsOptional()
   priority?: number;
 
+  @ApiPropertyOptional({ default: true, example: true })
   @IsBoolean({
     message: 'O campo active deve ser verdadeiro ou falso.',
   })

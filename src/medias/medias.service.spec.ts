@@ -4,6 +4,34 @@ import type { PrismaService } from '../prisma/prisma.service';
 import { MediasService } from './medias.service';
 
 describe('MediasService.list', () => {
+  it('repairs legacy media names stored with the wrong encoding', async () => {
+    const update = jest.fn().mockResolvedValue(undefined);
+    const prisma = {
+      media: {
+        findMany: jest.fn().mockResolvedValue([
+          {
+            id: 'media-legacy-name',
+            name: 'ÃMEGA 3 - 1920 x 1080 3.mp4',
+            type: MediaType.IMAGE,
+            fileUrl: 'omega.jpg',
+            duration: null,
+            hasAudio: null,
+          },
+        ]),
+        update,
+      },
+    } as unknown as PrismaService;
+    const service = new MediasService(prisma);
+
+    const result = await service.list('company-1');
+
+    expect(update).toHaveBeenCalledWith({
+      where: { id: 'media-legacy-name' },
+      data: { name: 'ÔMEGA 3 - 1920 x 1080 3.mp4' },
+    });
+    expect(result[0].name).toBe('ÔMEGA 3 - 1920 x 1080 3.mp4');
+  });
+
   it('identifies the audio track of a legacy video and persists the metadata', async () => {
     const legacyVideo = {
       id: 'media-1',

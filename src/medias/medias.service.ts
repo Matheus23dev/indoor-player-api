@@ -18,6 +18,7 @@ import * as path from 'path';
 import { PrismaService } from '../prisma/prisma.service';
 import { getMediaStoragePath } from '../config/environment';
 import { compactPlaylistItemOrder } from '../playlists/playlist-item-order';
+import { normalizeMediaFileName } from './media-file-name';
 
 const execFileAsync = promisify(execFile);
 const VIDEO_METADATA_PROBE_CONCURRENCY = 4;
@@ -65,7 +66,7 @@ export class MediasService implements OnApplicationBootstrap {
 
       return await this.prisma.media.create({
         data: {
-          name: file.originalname,
+          name: normalizeMediaFileName(file.originalname),
           type: mediaType,
           fileUrl: file.filename,
           fileSize: file.size,
@@ -116,6 +117,7 @@ export class MediasService implements OnApplicationBootstrap {
         },
       });
 
+      await this.repairMalformedMediaNames(medias);
       await this.refreshMissingVideoMetadata(medias);
 
       return medias;
@@ -347,6 +349,37 @@ export class MediasService implements OnApplicationBootstrap {
         }),
       );
     }
+  }
+
+  private async repairMalformedMediaNames(
+    medias: Array<{
+      id: string;
+      name: string;
+    }>,
+  ) {
+    await Promise.all(
+      medias.map(async (media) => {
+        const normalizedName = normalizeMediaFileName(media.name);
+
+        if (normalizedName === media.name) {
+          return;
+        }
+
+        try {
+          await this.prisma.media.update({
+            where: { id: media.id },
+            data: { name: normalizedName },
+          });
+        } catch (error: unknown) {
+          console.error('[MEDIAS] Não foi possível corrigir o nome da mídia:', {
+            mediaId: media.id,
+            error,
+          });
+        }
+
+        media.name = normalizedName;
+      }),
+    );
   }
 
   private async backfillMissingVideoMetadata() {

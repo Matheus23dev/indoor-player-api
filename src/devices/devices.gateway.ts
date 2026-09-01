@@ -19,6 +19,7 @@ import {
 } from './device-audit';
 
 import type { AuthenticatedDevice } from './device-auth.types';
+import { isCorsOriginAllowed } from '../config/environment';
 
 interface DeviceSocketData {
   device?: AuthenticatedDevice;
@@ -30,6 +31,15 @@ type DeviceSocket = Socket<any, any, any, DeviceSocketData>;
 type DeviceServer = Server<any, any, any, DeviceSocketData>;
 
 const CONNECTION_LOST_GRACE_MS = 60_000;
+
+type SocketCorsCallback = (error: Error | null, allow?: boolean) => void;
+
+function validateSocketOrigin(
+  origin: string | undefined,
+  callback: SocketCorsCallback,
+) {
+  callback(null, isCorsOriginAllowed(origin));
+}
 
 export type ProgrammingChangeReason =
   | 'SCHEDULE_CREATED'
@@ -48,7 +58,7 @@ export type DeviceSessionEndReason = 'UNLINKED' | 'DELETED';
   namespace: '/devices',
 
   cors: {
-    origin: '*',
+    origin: validateSocketOrigin,
   },
 
   transports: ['websocket'],

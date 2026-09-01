@@ -18,6 +18,8 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { AddPlaylistItemDto } from './dto/add-playlist-item.dto';
 import { CreatePlaylistDto } from './dto/create-playlist.dto';
+import { DeletePlaylistItemsDto } from './dto/delete-playlist-items.dto';
+import { SavePlaylistCompositionDto } from './dto/save-playlist-composition.dto';
 import { UpdatePlaylistItemDto } from './dto/update-playlist-item.dto';
 import { UpdatePlaylistDto } from './dto/update-playlist.dto';
 import {
@@ -328,6 +330,560 @@ export class PlaylistsService {
       return createdItem;
     } catch (error) {
       this.handleError(error, 'Erro interno ao adicionar item à playlist.');
+    }
+  }
+
+  async duplicateItem(
+    itemId: string,
+    companyId: string,
+    actor: DeviceAuditActor,
+  ) {
+    try {
+      const duplicated = await this.prisma.$transaction(
+        async (tx) => {
+          const sourceItem = await tx.playlistItem.findFirst({
+            where: {
+              id: itemId,
+              playlist: {
+                companyId,
+              },
+            },
+            include: {
+              media: true,
+              playlist: {
+                select: {
+                  name: true,
+                },
+              },
+            },
+          });
+
+          if (!sourceItem) {
+            throw new NotFoundException('Item não encontrado na sua playlist.');
+          }
+
+          const currentItems = await tx.playlistItem.findMany({
+            where: {
+              playlistId: sourceItem.playlistId,
+            },
+            orderBy: {
+              order: 'asc',
+            },
+            select: {
+              id: true,
+              order: true,
+            },
+          });
+
+          const sourceIndex = currentItems.findIndex(
+            (item) => item.id === sourceItem.id,
+          );
+          const temporaryOrder =
+            (currentItems[currentItems.length - 1]?.order ?? 0) + 1;
+
+          const createdItem = await tx.playlistItem.create({
+            data: {
+              playlistId: sourceItem.playlistId,
+              mediaId: sourceItem.mediaId,
+              order: temporaryOrder,
+              duration: sourceItem.duration,
+              muted: sourceItem.muted,
+            },
+            include: {
+              media: true,
+            },
+          });
+
+          const reorderedItems = [...currentItems];
+          reorderedItems.splice(sourceIndex + 1, 0, {
+            id: createdItem.id,
+            order: temporaryOrder,
+          });
+
+          await applyPlaylistItemOrder(
+            tx,
+            sourceItem.playlistId,
+            reorderedItems,
+          );
+          await this.touchPlaylist(tx, sourceItem.playlistId);
+
+          return {
+            item: {
+              ...createdItem,
+              order: sourceIndex + 2,
+            },
+            playlistId: sourceItem.playlistId,
+            playlistName: sourceItem.playlist.name,
+            mediaName: sourceItem.media.name,
+          };
+        },
+        {
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+        },
+      );
+
+      await this.devicesGateway.notifyPlaylistChanged(
+        duplicated.playlistId,
+        'PLAYLIST_ITEM_ADDED',
+      );
+
+      await this.auditPlaylistDevices(duplicated.playlistId, {
+        actor,
+        action: 'PLAYLIST_MEDIA_DUPLICATED',
+        message: `duplicou a mídia "${duplicated.mediaName}" na playlist "${duplicated.playlistName}".`,
+        entityType: 'PLAYLIST',
+        entityId: duplicated.playlistId,
+        metadata: {
+          playlistName: duplicated.playlistName,
+          mediaName: duplicated.mediaName,
+          sourceItemId: itemId,
+          duplicatedItemId: duplicated.item.id,
+        },
+      });
+
+      return duplicated.item;
+    } catch (error) {
+      this.handleError(error, 'Erro interno ao duplicar item da playlist.');
+    }
+  }
+
+  async saveComposition(
+    playlistId: string,
+    dto: SavePlaylistCompositionDto,
+    companyId: string,
+    actor: DeviceAuditActor,
+  ) {
+    try {
+      const playlist = await this.prisma.playlist.findFirst({
+        where: {
+          id: playlistId,
+          companyId,
+        },
+        select: {
+          id: true,
+          name: true,
+          orientation: true,
+          items: {
+            select: {
+              id: true,
+              mediaId: true,
+              order: true,
+              duration: true,
+              muted: true,
+              media: {
+                select: {
+                  name: true,
+                  type: true,
+                  hasAudio: true,
+                },
+              },
+            },
+          },
+          overlayBars: {
+            select: {
+              overlayBarId: true,
+              order: true,
+            },
+            orderBy: {
+              order: 'asc',
+            },
+          },
+        },
+      });
+
+      if (!playlist) {
+        throw new NotFoundException('Playlist não encontrada.');
+      }
+
+      const validOverlayBars =
+        dto.overlayBarIds.length > 0
+          ? await this.prisma.overlayBar.findMany({
+              where: {
+                companyId,
+                id: {
+                  in: dto.overlayBarIds,
+                },
+              },
+              select: {
+                id: true,
+              },
+            })
+          : [];
+
+      if (validOverlayBars.length !== dto.overlayBarIds.length) {
+        throw new BadRequestException(
+          'Uma ou mais barras não pertencem à sua empresa.',
+        );
+      }
+
+      const currentItemsById = new Map(
+        playlist.items.map((item) => [item.id, item]),
+      );
+      const malformedItem = dto.items.find(
+        (item) => Boolean(item.id) === Boolean(item.sourceItemId),
+      );
+
+      if (malformedItem) {
+        throw new BadRequestException(
+          'Cada posição deve informar um item existente ou a origem da duplicação.',
+        );
+      }
+
+      const existingItems = dto.items.filter(
+        (item): item is typeof item & { id: string } => Boolean(item.id),
+      );
+      const receivedIds = existingItems.map((item) => item.id);
+
+      if (new Set(receivedIds).size !== receivedIds.length) {
+        throw new BadRequestException(
+          'Não é permitido enviar mídias duplicadas.',
+        );
+      }
+
+      if (receivedIds.length !== playlist.items.length) {
+        throw new BadRequestException(
+          'Todos os itens atuais da playlist devem ser enviados ao salvar.',
+        );
+      }
+
+      const invalidItem = dto.items.find(
+        (item) =>
+          !currentItemsById.has((item.id ?? item.sourceItemId) as string),
+      );
+
+      if (invalidItem) {
+        throw new BadRequestException(
+          'Uma ou mais mídias não pertencem a esta playlist.',
+        );
+      }
+
+      const missingCurrentItem = playlist.items.find(
+        (item) => !receivedIds.includes(item.id),
+      );
+
+      if (missingCurrentItem) {
+        throw new BadRequestException(
+          'Todos os itens atuais da playlist devem ser enviados ao salvar.',
+        );
+      }
+
+      const orderedPositions = dto.items
+        .map((item) => item.order)
+        .sort((first, second) => first - second);
+      const hasInvalidOrder = orderedPositions.some(
+        (order, index) => order !== index + 1,
+      );
+
+      if (hasInvalidOrder) {
+        throw new BadRequestException(
+          'As posições devem formar uma sequência contínua a partir de 1.',
+        );
+      }
+
+      for (const submittedItem of dto.items) {
+        const currentItem = currentItemsById.get(
+          (submittedItem.id ?? submittedItem.sourceItemId) as string,
+        )!;
+
+        if (
+          submittedItem.duration !== undefined &&
+          currentItem.media.type !== 'IMAGE'
+        ) {
+          throw new BadRequestException(
+            'A duração pode ser alterada somente para imagens.',
+          );
+        }
+
+        if (
+          submittedItem.muted !== undefined &&
+          currentItem.media.type !== 'VIDEO'
+        ) {
+          throw new BadRequestException(
+            'A configuração de áudio está disponível somente para vídeos.',
+          );
+        }
+
+        if (
+          submittedItem.muted === false &&
+          currentItem.media.hasAudio === false
+        ) {
+          throw new BadRequestException(
+            `O vídeo "${currentItem.media.name}" não possui faixa de áudio para ser ativada.`,
+          );
+        }
+      }
+
+      const changedItems = dto.items.filter((submittedItem) => {
+        if (submittedItem.sourceItemId) {
+          return true;
+        }
+
+        const currentItem = currentItemsById.get(submittedItem.id as string)!;
+
+        return (
+          currentItem.order !== submittedItem.order ||
+          (submittedItem.duration !== undefined &&
+            currentItem.duration !== submittedItem.duration) ||
+          (submittedItem.muted !== undefined &&
+            currentItem.muted !== submittedItem.muted)
+        );
+      });
+      const currentOverlayBarIds = playlist.overlayBars.map(
+        (item) => item.overlayBarId,
+      );
+      const overlayBarsChanged =
+        currentOverlayBarIds.length !== dto.overlayBarIds.length ||
+        currentOverlayBarIds.some(
+          (overlayBarId, index) => overlayBarId !== dto.overlayBarIds[index],
+        );
+      const orientationChanged = playlist.orientation !== dto.orientation;
+
+      const updatedPlaylist = await this.prisma.$transaction(
+        async (tx) => {
+          const resolvedItemIds = new Map<number, string>();
+          let temporaryOrder =
+            Math.max(0, ...playlist.items.map((item) => item.order)) + 1;
+
+          for (const [index, submittedItem] of dto.items.entries()) {
+            if (submittedItem.id) {
+              resolvedItemIds.set(index, submittedItem.id);
+              continue;
+            }
+
+            const sourceItem = currentItemsById.get(
+              submittedItem.sourceItemId as string,
+            )!;
+            const duplicatedItem = await tx.playlistItem.create({
+              data: {
+                playlistId,
+                mediaId: sourceItem.mediaId,
+                order: temporaryOrder,
+                duration: sourceItem.duration,
+                muted: sourceItem.muted,
+              },
+              select: {
+                id: true,
+              },
+            });
+
+            resolvedItemIds.set(index, duplicatedItem.id);
+            temporaryOrder += 1;
+          }
+
+          await applyPlaylistItemOrder(
+            tx,
+            playlistId,
+            dto.items.map((item, index) => ({
+              id: resolvedItemIds.get(index)!,
+              order: item.order,
+            })),
+          );
+
+          for (const [index, submittedItem] of dto.items.entries()) {
+            if (
+              submittedItem.duration === undefined &&
+              submittedItem.muted === undefined
+            ) {
+              continue;
+            }
+
+            await tx.playlistItem.update({
+              where: {
+                id: resolvedItemIds.get(index)!,
+              },
+              data: {
+                ...(submittedItem.duration !== undefined
+                  ? { duration: submittedItem.duration }
+                  : {}),
+                ...(submittedItem.muted !== undefined
+                  ? { muted: submittedItem.muted }
+                  : {}),
+              },
+            });
+          }
+
+          await tx.playlistOverlayBar.deleteMany({
+            where: {
+              playlistId,
+            },
+          });
+
+          if (dto.overlayBarIds.length > 0) {
+            await tx.playlistOverlayBar.createMany({
+              data: dto.overlayBarIds.map((overlayBarId, index) => ({
+                playlistId,
+                overlayBarId,
+                order: index + 1,
+              })),
+            });
+          }
+
+          await tx.playlist.update({
+            where: {
+              id: playlistId,
+            },
+            data: {
+              orientation: dto.orientation,
+              updatedAt: new Date(),
+            },
+          });
+
+          return tx.playlist.findUnique({
+            where: {
+              id: playlistId,
+            },
+            include: {
+              items: {
+                include: {
+                  media: true,
+                },
+                orderBy: {
+                  order: 'asc',
+                },
+              },
+              overlayBars: {
+                include: {
+                  overlayBar: {
+                    include: {
+                      media: true,
+                    },
+                  },
+                },
+                orderBy: {
+                  order: 'asc',
+                },
+              },
+            },
+          });
+        },
+        {
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+        },
+      );
+
+      await this.devicesGateway.notifyPlaylistChanged(
+        playlistId,
+        'PLAYLIST_UPDATED',
+      );
+
+      await this.auditPlaylistDevices(playlistId, {
+        actor,
+        action: 'PLAYLIST_COMPOSITION_UPDATED',
+        message: `salvou as alterações da composição da playlist "${playlist.name}".`,
+        entityType: 'PLAYLIST',
+        entityId: playlistId,
+        metadata: {
+          playlistName: playlist.name,
+          changedItems: changedItems.length,
+          duplicatedItems: dto.items.filter((item) => item.sourceItemId).length,
+          orientationChanged,
+          overlayBarsChanged,
+        },
+      });
+
+      return updatedPlaylist;
+    } catch (error) {
+      this.handleError(error, 'Erro interno ao salvar a composição.');
+    }
+  }
+
+  async removeItems(
+    playlistId: string,
+    dto: DeletePlaylistItemsDto,
+    companyId: string,
+    actor: DeviceAuditActor,
+  ) {
+    try {
+      const playlist = await this.prisma.playlist.findFirst({
+        where: {
+          id: playlistId,
+          companyId,
+        },
+        select: {
+          id: true,
+          name: true,
+        },
+      });
+
+      if (!playlist) {
+        throw new NotFoundException('Playlist não encontrada.');
+      }
+
+      const items = await this.prisma.playlistItem.findMany({
+        where: {
+          playlistId,
+          id: {
+            in: dto.itemIds,
+          },
+        },
+        select: {
+          id: true,
+          media: {
+            select: {
+              name: true,
+            },
+          },
+        },
+      });
+
+      if (items.length !== dto.itemIds.length) {
+        throw new BadRequestException(
+          'Uma ou mais mídias selecionadas não pertencem a esta playlist.',
+        );
+      }
+
+      await this.prisma.$transaction(
+        async (tx) => {
+          await tx.playlistItem.deleteMany({
+            where: {
+              playlistId,
+              id: {
+                in: dto.itemIds,
+              },
+            },
+          });
+
+          await compactPlaylistItemOrder(tx, playlistId);
+          await this.touchPlaylist(tx, playlistId);
+        },
+        {
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+        },
+      );
+
+      await this.devicesGateway.notifyPlaylistChanged(
+        playlistId,
+        'PLAYLIST_ITEM_REMOVED',
+      );
+
+      const mediaNames = items.map((item) => item.media.name);
+
+      await this.auditPlaylistDevices(playlistId, {
+        actor,
+        action: 'PLAYLIST_MEDIA_BULK_REMOVED',
+        message: `removeu ${items.length} ${items.length === 1 ? 'mídia' : 'mídias'} da playlist "${playlist.name}".`,
+        entityType: 'PLAYLIST',
+        entityId: playlistId,
+        metadata: {
+          playlistName: playlist.name,
+          removedItems: items.length,
+          mediaNames: mediaNames.join(', '),
+        },
+      });
+
+      return {
+        success: true,
+        message:
+          items.length === 1
+            ? 'Mídia removida com sucesso.'
+            : 'Mídias removidas com sucesso.',
+        removedItems: items.length,
+      };
+    } catch (error) {
+      this.handleError(
+        error,
+        'Erro interno ao remover as mídias selecionadas.',
+      );
     }
   }
 

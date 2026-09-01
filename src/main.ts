@@ -2,6 +2,7 @@ import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
 import { getApplicationPort, getCorsOrigins } from './config/environment';
+import { setupSwagger } from './swagger/swagger';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -30,6 +31,8 @@ async function bootstrap() {
   };
 
   expressApplication.disable?.('x-powered-by');
+
+  setupSwagger(app);
 
   await app.listen(getApplicationPort(), '0.0.0.0');
 }

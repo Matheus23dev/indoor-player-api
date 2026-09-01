@@ -8,13 +8,16 @@ import {
 } from 'class-validator';
 
 import { Type } from 'class-transformer';
+import { ApiProperty } from '@nestjs/swagger';
 
 class ReorderPlaylistItemDto {
+  @ApiProperty({ format: 'uuid' })
   @IsUUID('4', {
     message: 'O ID do item deve ser um UUID válido.',
   })
   id!: string;
 
+  @ApiProperty({ minimum: 1, example: 1 })
   @IsInt({
     message: 'A posição deve ser um número inteiro.',
   })
@@ -25,6 +28,7 @@ class ReorderPlaylistItemDto {
 }
 
 export class ReorderPlaylistDto {
+  @ApiProperty({ type: [ReorderPlaylistItemDto], minItems: 1 })
   @IsArray({
     message: 'Os itens devem ser enviados em uma lista.',
   })

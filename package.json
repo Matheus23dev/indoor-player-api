@@ -5,6 +5,9 @@
   "author": "",
   "private": true,
   "license": "UNLICENSED",
+  "engines": {
+    "node": ">=22.13.0"
+  },
   "scripts": {
     "build": "nest build",
     "format": "prettier --write \"src/**/*.ts\"",
@@ -21,7 +24,7 @@
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "typecheck": "tsc --noEmit --incremental false",
-    "validate": "npm run format:check && npm run typecheck && npm run lint && npm run test && npm run prisma:validate",
+    "validate": "npm run format:check && npm run typecheck && npm run lint && npm run test && npm run prisma:validate && npm run build",
     "prisma:generate": "prisma generate",
     "prisma:validate": "prisma validate",
     "prisma:migrate:dev": "prisma migrate dev",
@@ -37,6 +40,7 @@
     "@nestjs/platform-express": "^11.1.26",
     "@nestjs/platform-socket.io": "^11.1.27",
     "@nestjs/serve-static": "^5.0.5",
+    "@nestjs/swagger": "^11.4.7",
     "@nestjs/websockets": "^11.1.27",
     "@prisma/client": "^6.9.0",
     "bcrypt": "^6.0.0",

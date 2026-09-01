@@ -2,6 +2,7 @@ import * as path from 'path';
 
 const DEFAULT_PORT = 3000;
 const DEFAULT_MEDIA_PUBLIC_PATH = '/files/indoor-player-api';
+const DEFAULT_SWAGGER_PATH = 'docs';
 
 export function getApplicationPort(value = process.env.PORT) {
   const port = Number(value);
@@ -18,6 +19,15 @@ export function getCorsOrigins(value = process.env.CORS_ORIGINS) {
     .split(',')
     .map((origin) => origin.trim())
     .filter(Boolean);
+}
+
+export function isCorsOriginAllowed(
+  origin: string | undefined,
+  allowedOrigins = getCorsOrigins(),
+) {
+  return (
+    !origin || allowedOrigins.length === 0 || allowedOrigins.includes(origin)
+  );
 }
 
 export function getJwtSecret(value = process.env.JWT_SECRET) {
@@ -44,4 +54,26 @@ export function getMediaPublicPath(value = process.env.MEDIA_PUBLIC_PATH) {
     .replace(/\/+$/, '');
 
   return `/${normalized}`;
+}
+
+export function isSwaggerEnabled(
+  value = process.env.SWAGGER_ENABLED,
+  nodeEnvironment = process.env.NODE_ENV,
+) {
+  const normalized = value?.trim().toLowerCase();
+
+  if (normalized) {
+    return ['1', 'true', 'yes', 'on'].includes(normalized);
+  }
+
+  return nodeEnvironment?.trim().toLowerCase() !== 'production';
+}
+
+export function getSwaggerPath(value = process.env.SWAGGER_PATH) {
+  const normalized = (value?.trim() || DEFAULT_SWAGGER_PATH)
+    .replace(/^\/+/, '')
+    .replace(/\/+$/, '')
+    .replace(/\/{2,}/g, '/');
+
+  return normalized || DEFAULT_SWAGGER_PATH;
 }
